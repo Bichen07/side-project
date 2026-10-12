@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>反向傳播：這一格該加還是該減</title>
+<style>
+  :root {
+    --bg: #f3f1eb;
+    --paper: #fffdf8;
+    --ink: #1c1b19;
+    --muted: #5e5a54;
+    --line: #e3ddd3;
+    --red: #c04545;
+    --blue: #2a6cb0;
+    --pos: #f6d6d2;
+    --neg: #d4efe2;
+    --accent: #1f4e79;
+    --warn: #f6e7c8;
+    --info: #e6eef6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 72px; }
+  h1 { font-size: 24px; line-height: 1.3; margin: 0 0 8px; font-weight: 650; }
+  h2 { font-size: 18px; margin: 28px 0 8px; font-weight: 650; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .pill, .btn, select {
+    font: inherit; color: inherit; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer;
+  }
+  select { border-radius: 6px; }
+  .pill.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .btn { border-radius: 6px; padding: 6px 12px; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .qbtn { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-weight: 700; line-height: 1; }
+  kbd { font-family: ui-monospace, Consolas, monospace; font-size: 12px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 6px; background: #fff; }
+  .grid2 { display: grid; grid-template-columns: minmax(480px, 1.15fr) minmax(280px, 0.85fr); gap: 20px; align-items: start; }
+  @media (max-width: 880px) { .grid2 { grid-template-columns: 1fr; } }
+  .plots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 640px) { .plots { grid-template-columns: 1fr; } }
+  .plotcap { font-size: 13px; font-weight: 650; margin: 0 0 2px; }
+  input[type="number"] { width: 5.2em; font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: inherit; }
+  .card { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+  .card header { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 650; }
+  .card .body { padding: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  td.num, th.num { text-align: right; font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+  tr.info td { background: var(--info); }
+  .eq { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; margin: 3px 0; overflow-wrap: anywhere; }
+  .mats { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .mxeq { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 8px 0 14px; }
+  .mxline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .mxbox { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .mxname { font-size: 11px; color: var(--muted); }
+  .mxname.eq { font-size: 14px; font-weight: 650; color: inherit; }
+  .bracket { display: flex; flex-direction: column; gap: 3px; padding: 5px 8px; border-left: 2px solid #1c1b19; border-right: 2px solid #1c1b19; border-radius: 10px; background: #fffdf8; }
+  .mxrow { display: flex; gap: 3px; align-items: center; justify-content: center; }
+  .mh { min-width: 48px; text-align: center; font-size: 10px; color: var(--muted); }
+  .mh.side { min-width: 28px; text-align: right; }
+  .mcell { min-width: 48px; text-align: center; font-family: ui-monospace, Consolas, monospace; font-size: 12px; padding: 2px 4px; border-radius: 3px; background: #f7f4ee; white-space: nowrap; }
+  .mcell.on { background: #8eb8dd; box-shadow: inset 0 0 0 2px #1f4e79; }
+  .mxop { font-size: 18px; font-weight: 650; padding-top: 14px; }
+  .mat { display: grid; gap: 4px; align-items: stretch; }
+  .lab { font-size: 12px; color: var(--muted); align-self: center; }
+  .cell {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px; text-align: right;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--paper);
+    padding: 4px 6px; min-width: 72px; cursor: pointer; color: inherit;
+  }
+  .cell b { display: block; font-weight: 500; }
+  .cell span { display: block; color: var(--muted); font-size: 10px; }
+  .cell.hot { border-color: var(--accent); }
+  .cell.watch { box-shadow: inset 0 0 0 2px #c47b12; }
+  .cell.pos { background: var(--pos); }
+  .cell.neg { background: var(--neg); }
+  .cell.step { background: #8eb8dd; border-color: #1f4e79; box-shadow: 0 0 0 3px #1f4e79; position: relative; z-index: 1; }
+  .cell.step.watch { background: #8eb8dd; }
+  @keyframes nextPop { 0% { background: #1f4e79; color: #fff; } 100% { background: var(--paper); color: inherit; } }
+  .btn.nexting { animation: nextPop 0.35s ease; }
+  .busy-track { height: 8px; background: #e3ddd3; border-radius: 99px; overflow: hidden; margin: 8px 0 4px; }
+  .busy-track div { height: 100%; background: #1f4e79; width: 0; }
+  .cell b.old { color: #6d6862; text-decoration: line-through; font-size: 11px; font-weight: 500; }
+  .cell b.neu { color: #10283f; font-size: 14px; font-weight: 700; }
+  .delta-card { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: baseline; margin: 10px 0; padding: 12px 14px; background: #d6e6f5; border: 2px solid #1f4e79; border-radius: 8px; font-family: ui-monospace, Consolas, monospace; }
+  .delta-card .old { color: #6d6862; text-decoration: line-through; font-size: 18px; }
+  .delta-card .neu { color: #10283f; font-size: 26px; font-weight: 700; }
+  .delta-card .note { font-size: 16px; font-weight: 650; }
+  .delta-card .up { color: #1d7a46; }
+  .delta-card .down { color: #c04545; }
+  .callout { background: var(--info); border-radius: 6px; padding: 10px 12px; }
+  .callout.warn { background: var(--warn); }
+  .callout strong { display: block; margin-bottom: 4px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 18px; margin: 8px 0 12px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .good { color: #1d7a46; }
+  .bad { color: var(--red); }
+  .swatch { width: 10px; height: 10px; display: inline-block; }
+  svg.plot { width: 100%; height: auto; display: block; }
+  .pixgrid, .actgrid { display: grid; gap: 4px; }
+  .pixgrid { grid-template-columns: repeat(4, 36px); }
+  .actgrid { grid-template-columns: repeat(3, 76px); }
+  .pix, .act {
+    border: 2px solid var(--line); border-radius: 4px; cursor: pointer; font-family: ui-monospace, Consolas, monospace;
+  }
+  .pix { width: 36px; height: 36px; }
+  .pix.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pix.off { background: #efece6; color: var(--muted); }
+  .pix.hot { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .act { background: var(--paper); color: inherit; text-align: right; padding: 6px 4px; font-size: 12px; }
+  .act small { display: block; color: var(--muted); font-size: 10px; }
+  .act.closed { background: #efece6; }
+  .hr { height: 1px; background: var(--line); margin: 18px 0; }
+  polyline.loss { fill: none; stroke: var(--accent); stroke-width: 2; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .story { font-family: ui-monospace, Consolas, monospace; font-size: 13px; margin: 0 0 6px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const PRESETS = [
+  { name: "上半橫帶", label: 1, image: [[1,1,1,1],[1,1,1,1],[0,0,0,0],[0,0,0,0]] },
+  { name: "下半橫帶", label: 1, image: [[0,0,0,0],[0,0,0,0],[1,1,1,1],[1,1,1,1]] },
+  { name: "左側直帶", label: 0, image: [[1,1,0,0],[1,1,0,0],[1,1,0,0],[1,1,0,0]] },
+  { name: "對角線", label: 0, image: [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]] },
+];
+const POS3 = [["左上","上","右上"],["左","中","右"],["左下","下","右下"]];
+const POS2 = [["左上","右上"],["左下","右下"]];
+
+const S = {
+  mode: "mlp",
+  h: 3, two: false, lr: 2, n: 20, dataSeed: 1, wSeed: 1,
+  weights: null, points: [], selected: 0, focus: { kind: "Wo", j: 0 }, hist: [],
+  grid: PRESETS[0].image.map(r => r.slice()), label: 1, presetName: "上半橫帶",
+  cnnW: null, cnnLr: 0.8, cnnFocus: { kind: "K", u: 0, v: 0 }, win: { i: 0, j: 0 }, cnnHist: [],
+  initial: null,
+  play: { phase: "idle", step: 0, timer: null, doneForward: false },
+  watch: null, epochs: 200, advice: "", epochAt: null,
+  busy: "", busyPct: 0, working: false, job: null, nextFx: false, keysHelp: false,
+};
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function sigmoid(z) {
+  if (z > 20) return 1;
+  if (z < -20) return 0;
+  return 1 / (1 + Math.exp(-z));
+}
+function num(n, d = 3) {
+  if (!Number.isFinite(n)) return "—";
+  if (Math.abs(n) < 5 * 10 ** -(d + 1)) return (0).toFixed(d);
+  return n.toFixed(d);
+}
+function signed(n, d = 3) {
+  const s = num(n, d);
+  if (s === (0).toFixed(d)) return s;
+  return n > 0 ? "+" + s : s;
+}
+function paren(n) { const s = num(n); return n < -5e-4 ? "(" + s + ")" : s; }
+function dirWord(g) { if (Math.abs(g) < 5e-4) return "almost 0"; return g > 0 ? "decrease" : "increase"; }
+function hName(j, layer) { return "h" + (layer || 1) + "-" + (j + 1); }
+function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function initMlp(h, two, seed) {
+  const rng = mulberry32(seed);
+  const s1 = Math.sqrt(6 / (2 + h)), s2 = Math.sqrt(6 / (h + h)), so = Math.sqrt(6 / (h + 1));
+  const roll = scale => (rng() * 2 - 1) * scale;
+  return {
+    h, two,
+    W1: [0, 1].map(() => Array.from({ length: h }, () => roll(s1))),
+    b1: Array.from({ length: h }, () => 0),
+    W2: Array.from({ length: h }, () => Array.from({ length: h }, () => roll(s2))),
+    b2: Array.from({ length: h }, () => 0),
+    Wo: Array.from({ length: h }, () => roll(so)),
+    bo: 0,
+  };
+}
+function makePoints(seed, n) {
+  const rng = mulberry32(seed);
+  return Array.from({ length: n }, () => {
+    const x = rng() * 10, y = rng() * 10;
+    return { x, y, label: x > y ? 1 : 0 };
+  });
+}
+function backwardPoint(p, w) {
+  const x = [p.x / 10, p.y / 10];
+  const z1 = w.b1.map((b, j) => x[0] * w.W1[0][j] + x[1] * w.W1[1][j] + b);
+  const a1 = z1.map(sigmoid);
+  let z2 = null, a2 = null, hid = a1;
+  if (w.two) {
+    z2 = w.b2.map((b, k) => { let s = b; for (let j = 0; j < w.h; j++) s += a1[j] * w.W2[j][k]; return s; });
+    a2 = z2.map(sigmoid); hid = a2;
+  }
+  const zo = hid.reduce((s, a, j) => s + a * w.Wo[j], w.bo);
+  const yhat = sigmoid(zo);
+  const dLdy = 2 * (yhat - p.label);
+  const dSigO = yhat * (1 - yhat);
+  const dZo = dLdy * dSigO;
+  const dWo = hid.map(a => dZo * a);
+  let dSig2 = null, dZ2 = null, dW2 = null, db2 = null;
+  let dA1 = w.Wo.map(wj => dZo * wj);
+  if (w.two && a2) {
+    dSig2 = a2.map(a => a * (1 - a));
+    dZ2 = dA1.map((d, k) => d * dSig2[k]);
+    dW2 = Array.from({ length: w.h }, (_, j) => dZ2.map(dz => a1[j] * dz));
+    db2 = dZ2.slice();
+    dA1 = Array.from({ length: w.h }, (_, j) => { let s = 0; for (let k = 0; k < w.h; k++) s += dZ2[k] * w.W2[j][k]; return s; });
+  }
+  const dSig1 = a1.map(a => a * (1 - a));
+  const dZ1 = dA1.map((d, j) => d * dSig1[j]);
+  const dW1 = [0, 1].map(i => dZ1.map(dz => x[i] * dz));
+  return { x, z1, a1, z2, a2, hid, zo, yhat, dLdy, dSigO, dZo, dWo, dbo: dZo, dSig2, dZ2, dW2, db2, dA1, dSig1, dZ1, dW1, db1: dZ1.slice() };
+}
+function gradsOf(c) { return { dW1: c.dW1, db1: c.db1, dW2: c.dW2, db2: c.db2, dWo: c.dWo, dbo: c.dbo }; }
+function batchGrads(ps, w) {
+  const acc = {
+    dW1: w.W1.map(r => r.map(() => 0)), db1: w.b1.map(() => 0),
+    dW2: w.two ? w.W2.map(r => r.map(() => 0)) : null, db2: w.two ? w.b2.map(() => 0) : null,
+    dWo: w.Wo.map(() => 0), dbo: 0,
+  };
+  for (const p of ps) {
+    const g = gradsOf(backwardPoint(p, w));
+    for (let i = 0; i < 2; i++) for (let j = 0; j < w.h; j++) acc.dW1[i][j] += g.dW1[i][j];
+    for (let j = 0; j < w.h; j++) acc.db1[j] += g.db1[j];
+    if (w.two && acc.dW2 && g.dW2) {
+      for (let j = 0; j < w.h; j++) for (let k = 0; k < w.h; k++) acc.dW2[j][k] += g.dW2[j][k];
+      for (let k = 0; k < w.h; k++) acc.db2[k] += g.db2[k];
+    }
+    for (let j = 0; j < w.h; j++) acc.dWo[j] += g.dWo[j];
+    acc.dbo += g.dbo;
+  }
+  const inv = 1 / ps.length;
+  return {
+    dW1: acc.dW1.map(r => r.map(v => v * inv)), db1: acc.db1.map(v => v * inv),
+    dW2: acc.dW2 ? acc.dW2.map(r => r.map(v => v * inv)) : null,
+    db2: acc.db2 ? acc.db2.map(v => v * inv) : null,
+    dWo: acc.dWo.map(v => v * inv), dbo: acc.dbo * inv,
+  };
+}
+function applyGrads(w, g, lr) {
+  return {
+    h: w.h, two: w.two,
+    W1: w.W1.map((row, i) => row.map((v, j) => v - lr * g.dW1[i][j])),
+    b1: w.b1.map((v, j) => v - lr * g.db1[j]),
+    W2: w.W2.map((row, j) => row.map((v, k) => w.two && g.dW2 ? v - lr * g.dW2[j][k] : v)),
+    b2: w.b2.map((v, k) => w.two && g.db2 ? v - lr * g.db2[k] : v),
+    Wo: w.Wo.map((v, j) => v - lr * g.dWo[j]),
+    bo: w.bo - lr * g.dbo,
+  };
+}
+function meanLoss(ps, w) {
+  let s = 0;
+  for (const p of ps) s += (backwardPoint(p, w).yhat - p.label) ** 2;
+  return s / ps.length;
+}
+function cellGrad(g, f) {
+  if (f.kind === "W1") return g.dW1[f.i][f.j];
+  if (f.kind === "b1") return g.db1[f.j];
+  if (f.kind === "W2") return g.dW2 ? g.dW2[f.j][f.k] : 0;
+  if (f.kind === "b2") return g.db2 ? g.db2[f.k] : 0;
+  if (f.kind === "Wo") return g.dWo[f.j];
+  return g.dbo;
+}
+function cellValue(w, f) {
+  if (f.kind === "W1") return w.W1[f.i][f.j];
+  if (f.kind === "b1") return w.b1[f.j];
+  if (f.kind === "W2") return w.W2[f.j][f.k];
+  if (f.kind === "b2") return w.b2[f.k];
+  if (f.kind === "Wo") return w.Wo[f.j];
+  return w.bo;
+}
+function focusLabel(f) {
+  if (f.kind === "W1") return "W1[" + (f.i === 0 ? "x" : "y") + ", " + hName(f.j) + "]";
+  if (f.kind === "b1") return "b1[" + hName(f.j) + "]";
+  if (f.kind === "W2") return "W2[" + hName(f.j, 1) + "→" + hName(f.k, 2) + "]";
+  if (f.kind === "b2") return "b2[" + hName(f.k, 2) + "]";
+  if (f.kind === "Wo") return "Wo[" + hName(f.j, S.two ? 2 : 1) + "]";
+  return "輸出 bias";
+}
+function errMeaning(yhat, label) {
+  if (yhat > label + 5e-4) return "預測比答案大，要把輸出往下拉";
+  if (yhat < label - 5e-4) return "預測比答案小，要把輸出往上推";
+  return "預測已經等於答案";
+}
+function wSign(v) {
+  if (v < -5e-4) return "負權重，誤差方向在這裡反轉";
+  if (v > 5e-4) return "正權重，方向照原樣往下傳";
+  return "接近 0，幾乎不傳誤差";
+}
+function mlpFactors(c, w, f, label) {
+  const rows = [];
+  const push = (factor, value, meaning) => rows.push({ factor, value: signed(value), meaning });
+  if ((f.kind === "W1" || f.kind === "b1") && w.two) {
+    const j = f.j;
+    push("傳回這層", c.dA1[j], "第二層的 δ 與 W2 這一列內積");
+    push("這層 σ'", c.dSig1[j], "sigmoid 微分只縮小、不改號");
+    if (f.kind === "W1") {
+      push(f.i === 0 ? "x/10" : "y/10", c.x[f.i], "輸入不是負數，不會再反轉");
+      push("gradient", c.dW1[f.i][j], "這三項相乘");
+    } else push("gradient", c.db1[j], "bias 的係數是 1");
+    return rows;
+  }
+  push("2(ŷ − y)", c.dLdy, errMeaning(c.yhat, label));
+  if (f.kind === "bo") { push("ŷ(1 − ŷ)", c.dSigO, "output sigmoid 的 derivative"); push("gradient", c.dbo, "兩項相乘，bias 係數是 1"); return rows; }
+  if (f.kind === "Wo") { push("ŷ(1 − ŷ)", c.dSigO, "output sigmoid 的 derivative"); push("activation " + hName(f.j, w.two ? 2 : 1), c.hid[f.j], "這個 hidden neuron 有多開"); push("gradient", c.dWo[f.j], "三項相乘"); return rows; }
+  if (f.kind === "W2" || f.kind === "b2") {
+    const k = f.k;
+    push("ŷ(1 − ŷ)", c.dSigO, "輸出 sigmoid 的微分");
+    push("Wo[" + hName(k, 2) + "]", w.Wo[k], wSign(w.Wo[k]));
+    push("第二層 σ'", c.dSig2 ? c.dSig2[k] : 0, "sigmoid 微分只縮小、不改號");
+    if (f.kind === "W2") { push("a1[" + hName(f.j, 1) + "]", c.a1[f.j], "前一層 activation，是這個 weight 的 input"); push("gradient", c.dW2[f.j][k], "以上全部相乘"); }
+    else push("gradient", c.db2[k], "bias 係數是 1");
+    return rows;
+  }
+  const j = f.j;
+  push("ŷ(1 − ŷ)", c.dSigO, "輸出 sigmoid 的微分");
+  push("Wo[" + hName(j) + "]", w.Wo[j], wSign(w.Wo[j]));
+  push("這層 σ'", c.dSig1[j], "sigmoid 微分只縮小、不改號");
+  if (f.kind === "W1") { push(f.i === 0 ? "x/10" : "y/10", c.x[f.i], "input 不是負數，不會再反轉"); push("gradient", c.dW1[f.i][j], "以上全部相乘"); }
+  else push("gradient", c.db1[j], "bias 係數是 1");
+  return rows;
+}
+function initCnn() {
+  return { K: [[0.2, 0.1], [-0.05, 0.15]], bK: -0.05, V: [[0.1, 0.05, 0.1], [0.05, 0.1, 0.05], [0.1, 0.05, 0.1]], bV: -0.2 };
+}
+function cnnPass(img, y, w) {
+  const z = [], a = [];
+  for (let i = 0; i < 3; i++) {
+    z[i] = []; a[i] = [];
+    for (let j = 0; j < 3; j++) {
+      let s = w.bK;
+      for (let u = 0; u < 2; u++) for (let v = 0; v < 2; v++) s += img[i + u][j + v] * w.K[u][v];
+      z[i][j] = s; a[i][j] = s > 0 ? s : 0;
+    }
+  }
+  let logit = w.bV;
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) logit += a[i][j] * w.V[i][j];
+  const yhat = sigmoid(logit);
+  const dLdy = 2 * (yhat - y);
+  const dSig = yhat * (1 - yhat);
+  const dLogit = dLdy * dSig;
+  const dV = a.map(row => row.map(v => dLogit * v));
+  const dZ = z.map((row, i) => row.map((zv, j) => zv > 0 ? dLogit * w.V[i][j] : 0));
+  const dK = [[0, 0], [0, 0]];
+  let dbK = 0;
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    dbK += dZ[i][j];
+    for (let u = 0; u < 2; u++) for (let v = 0; v < 2; v++) dK[u][v] += dZ[i][j] * img[i + u][j + v];
+  }
+  return { z, a, logit, yhat, dLdy, dSig, dLogit, dV, dbV: dLogit, dZ, dK, dbK };
+}
+function applyCnn(w, g, lr) {
+  return {
+    K: w.K.map((row, u) => row.map((v, col) => v - lr * g.dK[u][col])),
+    bK: w.bK - lr * g.dbK,
+    V: w.V.map((row, i) => row.map((v, j) => v - lr * g.dV[i][j])),
+    bV: w.bV - lr * g.dbV,
+  };
+}
+function cnnBatch(w) {
+  let dK = [[0, 0], [0, 0]], dbK = 0, dV = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], dbV = 0, loss = 0, correct = 0;
+  for (const p of PRESETS) {
+    const g = cnnPass(p.image, p.label, w);
+    loss += (g.yhat - p.label) ** 2;
+    if ((g.yhat >= 0.5 ? 1 : 0) === p.label) correct++;
+    for (let u = 0; u < 2; u++) for (let v = 0; v < 2; v++) dK[u][v] += g.dK[u][v];
+    dbK += g.dbK;
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) dV[i][j] += g.dV[i][j];
+    dbV += g.dbV;
+  }
+  const inv = 1 / PRESETS.length;
+  return { loss: loss * inv, correct, dK: dK.map(r => r.map(v => v * inv)), dbK: dbK * inv, dV: dV.map(r => r.map(v => v * inv)), dbV: dbV * inv };
+}
+
+function chartSvg(hist, interactive) {
+  if (hist.length < 2) return "";
+  const W = 680, H = 180, L = 36, R = 8, T = 10, B = 28;
+  const ys = hist.map(d => d.loss);
+  const max = Math.max(0.05, ...ys);
+  const X = i => L + (hist.length === 1 ? 0 : i / (hist.length - 1)) * (W - L - R);
+  const Y = v => T + (1 - v / max) * (H - T - B);
+  const pts = hist.map((d, i) => X(i) + "," + Y(d.loss)).join(" ");
+  const cursor = interactive ? (S.epochAt == null ? hist.length - 1 : S.epochAt) : -1;
+  const mark = cursor >= 0 && hist[cursor]
+    ? `<line id="epoch-mark" x1="${X(cursor)}" y1="${T}" x2="${X(cursor)}" y2="${H - B}" stroke="#c47b12" stroke-width="1.5" /><circle id="epoch-dot" cx="${X(cursor)}" cy="${Y(hist[cursor].loss)}" r="5" fill="#c47b12" />`
+    : "";
+  const jump = interactive
+    ? `<rect data-act="chart-jump" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" style="cursor:pointer" />`
+    : "";
+  return `<h2>loss</h2>
+    <svg class="plot" viewBox="0 0 ${W} ${H}" data-w="${W}" data-h="${H}" data-l="${L}" data-r="${R}" data-t="${T}" data-b="${B}" role="img" aria-label="loss">
+      <line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" stroke="#cfc8bc" />
+      <line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="#cfc8bc" />
+      <text x="${L}" y="${Y(max) + 4}" text-anchor="end" font-size="11" fill="#5e5a54">${num(max, 2)}</text>
+      <text x="${L}" y="${Y(0) + 4}" text-anchor="end" font-size="11" fill="#5e5a54">0</text>
+      <text x="14" y="${(T + H - B) / 2}" font-size="11" fill="#5e5a54" transform="rotate(-90 14 ${(T + H - B) / 2})">loss</text>
+      <text x="${(L + W) / 2}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#5e5a54">epoch（${hist[0].step}–${hist[hist.length - 1].step}）</text>
+      <polyline class="loss" points="${pts}" />
+      ${mark}
+      ${jump}
+    </svg>
+    <p class="small muted">橫軸是 epoch，縱軸是平均 loss (ŷ − y)²。點曲線可以跳到那一步，黃線是目前停住的 epoch。</p>`;
+}
+
+function scatterSvg(points, selected, w, mode) {
+  const left = 36, top = 12, plot = 300;
+  const sx = x => left + (x / 10) * plot;
+  const sy = y => top + (1 - y / 10) * plot;
+  const nG = 12, cell = 10 / nG;
+  let rects = "";
+  for (let ix = 0; ix < nG; ix++) for (let iy = 0; iy < nG; iy++) {
+    const x = ix * cell + cell / 2, y = iy * cell + cell / 2;
+    let fill, opacity;
+    if (mode === "gt") {
+      fill = x > y ? "#c04545" : "#2a6cb0";
+      opacity = "0.22";
+    } else {
+      const yhat = backwardPoint({ x, y, label: 0 }, w).yhat;
+      const conf = Math.abs(yhat - 0.5) * 2;
+      fill = yhat >= 0.5 ? "#c04545" : "#2a6cb0";
+      opacity = (0.12 + 0.45 * conf).toFixed(3);
+    }
+    rects += `<rect x="${sx(ix * cell)}" y="${sy(iy * cell + cell)}" width="${plot / nG + 0.4}" height="${plot / nG + 0.4}" fill="${fill}" fill-opacity="${opacity}" />`;
+  }
+  const dots = points.map((p, i) => {
+    const yhat = backwardPoint(p, w).yhat;
+    const pred = yhat >= 0.5 ? 1 : 0;
+    const wrong = mode === "out" && pred !== p.label;
+    const color = (mode === "gt" ? p.label : pred) === 1 ? "#c04545" : "#2a6cb0";
+    const on = i === selected;
+    const mark = wrong
+      ? `<circle r="12" fill="#fffdf8" stroke="#1c1b19" stroke-width="1.7"/>
+         <g stroke="#1c1b19" stroke-width="2.8" stroke-linecap="square"><line x1="-7" y1="-7" x2="7" y2="7"/><line x1="-7" y1="7" x2="7" y2="-7"/></g>
+         <circle r="3.2" fill="${color}"/>`
+      : `<circle r="${on ? 6.5 : 5}" fill="${color}" stroke="${on ? "#1f4e79" : "#fffdf8"}" stroke-width="${on ? 2.5 : 1}" />`;
+    return `<g data-act="point" data-i="${i}" style="cursor:pointer" transform="translate(${sx(p.x)} ${sy(p.y)})">
+      <circle r="14" fill="transparent" />
+      ${on && wrong ? `<circle r="16" fill="none" stroke="#1f4e79" stroke-width="2.5"/>` : ""}
+      ${mark}
+      <title>(${p.x.toFixed(2)}, ${p.y.toFixed(2)}) Ground Truth ${p.label}${mode === "out" ? "，output " + num(yhat) : ""}</title>
+    </g>`;
+  }).join("");
+  const ticks = [0, 5, 10].map(t => `<text x="${sx(t)}" y="${top + plot + 16}" text-anchor="middle" font-size="11" fill="#5e5a54">${t}</text><text x="${left - 8}" y="${sy(t) + 4}" text-anchor="end" font-size="11" fill="#5e5a54">${t}</text>`).join("");
+  const label = mode === "gt" ? "Ground Truth" : "Output";
+  return `<svg class="plot" viewBox="0 0 360 348" role="img" aria-label="${label}">
+    <rect x="${left}" y="${top}" width="${plot}" height="${plot}" fill="#efece6" />
+    ${rects}
+    <line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(10)}" y2="${sy(10)}" stroke="#5e5a54" stroke-dasharray="4 4" />
+    <text x="${sx(6.2)}" y="${sy(7.6)}" font-size="11" fill="#5e5a54">y = x</text>
+    ${ticks}
+    <text x="${left + plot / 2}" y="${top + plot + 32}" text-anchor="middle" font-size="12" fill="#5e5a54">x (0–10)</text>
+    <text x="14" y="${top + plot / 2}" text-anchor="middle" font-size="12" fill="#5e5a54" transform="rotate(-90 14 ${top + plot / 2})">y (0–10)</text>
+    ${dots}
+  </svg>`;
+}
+
+function matHtml(title, corner, cols, rows, values, grads, hot, kind, marks) {
+  const head = cols.map(c => `<div class="lab" style="text-align:right">${esc(c)}</div>`).join("");
+  let body = "";
+  rows.forEach((label, i) => {
+    body += `<div class="lab">${esc(label)}</div>`;
+    cols.forEach((_, j) => {
+      const g = grads ? grads[i][j] : undefined;
+      const key = kind + ":" + i + ":" + j;
+      const stepOn = marks && marks.step && marks.step.has(key);
+      const watchOn = marks && marks.watch && marks.watch.has(key);
+      const cls = ["cell", hot && hot.i === i && hot.j === j ? "hot" : "", stepOn ? "step" : "", watchOn ? "watch" : "", !stepOn && g > 5e-4 ? "pos" : "", !stepOn && g < -5e-4 ? "neg" : ""].filter(Boolean).join(" ");
+      const extra = kind === "W2" ? ` data-k="${j}" data-j="${i}"` : ` data-i="${i}" data-j="${j}"`;
+      const nxt = marks && marks.next ? marks.next[key] : undefined;
+      const inner = nxt == null
+        ? `<b>${num(values[i][j])}</b>${g === undefined ? "" : `<span>${signed(g)}</span>`}`
+        : `<b class="old">${num(values[i][j])}</b><b class="neu">${num(nxt)}</b><span>Δ ${signed(nxt - values[i][j])}</span>`;
+      body += `<button type="button" class="${cls}" data-act="focus" data-kind="${kind}"${extra} title="${g === undefined ? "" : "gradient " + signed(g)}">${inner}</button>`;
+    });
+  });
+  return `<div><div class="small" style="font-weight:650;margin-bottom:6px">${esc(title)}</div><div class="mat" style="grid-template-columns:auto repeat(${cols.length}, minmax(72px, auto))"><div class="lab">${esc(corner)}</div>${head}${body}</div></div>`;
+}
+
+function options(list, current) {
+  return list.map(v => `<option value="${v}"${String(v) === String(current) ? " selected" : ""}>${v}</option>`).join("");
+}
+
+function stopPlay() {
+  if (S.play.timer) clearInterval(S.play.timer);
+  S.play.timer = null;
+}
+function resetPlay() {
+  stopPlay();
+  S.play.phase = "idle";
+  S.play.step = 0;
+  S.play.doneForward = false;
+}
+function cloneW(w) { return JSON.parse(JSON.stringify(w)); }
+function scriptLen(phase) {
+  const p = S.points[S.selected];
+  const c = backwardPoint(p, S.weights);
+  return (phase === "backward" ? backSteps(p, S.weights, c) : forwardSteps(p, S.weights, c)).length;
+}
+function viewEpoch() {
+  if (!S.hist.length) return 0;
+  if (S.epochAt == null) return S.hist.length - 1;
+  return Math.max(0, Math.min(S.hist.length - 1, S.epochAt));
+}
+function advanceEpoch() {
+  const i = viewEpoch();
+  if (!S.hist.length || i >= S.hist.length - 1) return false;
+  const row = S.hist[i + 1];
+  if (!row || !row.weights) return false;
+  S.epochAt = i + 1;
+  S.weights = cloneW(row.weights);
+  S.play.phase = "forward";
+  S.play.step = 0;
+  S.play.doneForward = false;
+  return true;
+}
+function retreatEpoch() {
+  const i = viewEpoch();
+  if (i <= 0) return false;
+  const row = S.hist[i - 1];
+  if (!row || !row.weights) return false;
+  S.epochAt = i - 1;
+  S.weights = cloneW(row.weights);
+  S.play.phase = "backward";
+  const p = S.points[S.selected];
+  S.play.step = backSteps(p, S.weights, backwardPoint(p, S.weights)).length - 1;
+  S.play.doneForward = true;
+  return true;
+}
+function atPlaybackEnd() {
+  return S.play.phase === "backward"
+    && S.hist.length > 0
+    && S.play.step >= scriptLen("backward") - 1
+    && viewEpoch() >= S.hist.length - 1;
+}
+function tickPlay() {
+  const len = scriptLen(S.play.phase);
+  if (S.play.step < len - 1) {
+    S.play.step += 1;
+    if (S.play.phase === "forward" && S.play.step >= len - 1) S.play.doneForward = true;
+    render();
+    return;
+  }
+  if (S.play.phase === "forward") {
+    S.play.doneForward = true;
+    S.play.phase = "backward";
+    S.play.step = 0;
+    render();
+    return;
+  }
+  if (!advanceEpoch()) stopPlay();
+  render();
+}
+function startPhase(phase) {
+  stopPlay();
+  S.play.phase = phase;
+  S.play.step = 0;
+  if (phase === "forward") S.play.doneForward = scriptLen("forward") <= 1;
+  else S.play.doneForward = true;
+}
+function stepNext() {
+  stopPlay();
+  S.nextFx = true;
+  if (S.play.phase === "idle") {
+    S.play.phase = "forward";
+    S.play.step = 0;
+    S.play.doneForward = false;
+    return;
+  }
+  const len = scriptLen(S.play.phase);
+  if (S.play.step < len - 1) {
+    S.play.step += 1;
+    if (S.play.phase === "forward" && S.play.step >= len - 1) S.play.doneForward = true;
+    return;
+  }
+  if (S.play.phase === "forward") {
+    S.play.doneForward = true;
+    S.play.phase = "backward";
+    S.play.step = 0;
+    return;
+  }
+  advanceEpoch();
+}
+function stepPrev() {
+  stopPlay();
+  if (S.play.phase === "idle") return;
+  if (S.play.step > 0) { S.play.step -= 1; return; }
+  if (S.play.phase === "backward") {
+    S.play.phase = "forward";
+    S.play.step = Math.max(0, scriptLen("forward") - 1);
+    S.play.doneForward = true;
+    return;
+  }
+  retreatEpoch();
+}
+function togglePlay() {
+  if (S.play.timer) { stopPlay(); return; }
+  if (atPlaybackEnd()) return;
+  if (S.play.phase === "idle") {
+    S.play.phase = "forward";
+    S.play.step = 0;
+    S.play.doneForward = scriptLen("forward") <= 1;
+  }
+  S.play.timer = setInterval(tickPlay, 1400);
+}
+function edgeWeight(w, from, to) {
+  if (from === "x" || from === "y") return w.W1[from === "x" ? 0 : 1][Number(to.split("-")[1])];
+  if (to === "out") return w.Wo[Number(from.split("-")[1])];
+  if (from.startsWith("h1-") && to.startsWith("h2-")) return w.W2[Number(from.split("-")[1])][Number(to.split("-")[1])];
+  return 0;
+}
+function forwardSteps(p, w, c) {
+  const steps = [{
+    hot: ["x", "y"], edges: [], cells: [], focusId: "in",
+    values: { x: num(c.x[0]), y: num(c.x[1]) },
+    title: "input",
+    change: { before: "(" + p.x.toFixed(2) + ", " + p.y.toFixed(2) + ")", after: num(c.x[0], 4) + ", " + num(c.x[1], 4), note: "÷ 10", dir: "" },
+    matrixLine: "input  x/10 = " + num(c.x[0], 4) + "    y/10 = " + num(c.x[1], 4),
+    lines: [
+      "座標 (" + p.x.toFixed(2) + ", " + p.y.toFixed(2) + ")，Ground Truth y = " + p.label,
+      "先除以 10，避免 sigmoid 一開始就飽和。",
+      "x/10 = " + num(c.x[0]) + "    y/10 = " + num(c.x[1]),
+      "線上的數字是 weight。圓圈下的 b 是 bias，初始是 0。",
+    ],
+  }];
+  for (let j = 0; j < w.h; j++) {
+    const mx = c.x[0] * w.W1[0][j];
+    const my = c.x[1] * w.W1[1][j];
+    steps.push({
+      hot: ["x", "y", "h1-" + j],
+      edges: ["x-h1-" + j, "y-h1-" + j],
+      cells: [{ kind: "W1", i: 0, j }, { kind: "W1", i: 1, j }, { kind: "b1", i: j, j: 0 }],
+      focusId: "h1-" + j,
+      values: { ["h1-" + j]: num(c.a1[j]) },
+      title: "hidden neuron " + hName(j),
+      change: { before: "z " + num(c.z1[j], 4), after: num(c.a1[j], 4), note: "sigmoid → activation", dir: "" },
+      matrixLine: "z = [x/10  y/10] · W1[:," + hName(j) + "] + b1[" + hName(j) + "] = " + num(c.z1[j], 4),
+      lines: [
+        "weight W(x→" + hName(j) + ") = " + num(w.W1[0][j]) + "，W(y→" + hName(j) + ") = " + num(w.W1[1][j]) + "，bias = " + num(w.b1[j]),
+        "multiply  " + num(c.x[0], 4) + " × " + num(w.W1[0][j], 4) + " = " + num(mx, 4),
+        "multiply  " + num(c.x[1], 4) + " × " + num(w.W1[1][j], 4) + " = " + num(my, 4),
+        "add  " + num(mx, 4) + " + " + num(my, 4) + " + " + num(w.b1[j], 4) + " = " + num(c.z1[j], 4) + "    ← z",
+        "sigmoid  σ(" + num(c.z1[j], 4) + ") = " + num(c.a1[j], 4) + "    ← activation",
+      ],
+    });
+  }
+  if (w.two && c.z2 && c.a2) {
+    for (let k = 0; k < w.h; k++) {
+      const lines = ["hidden 2  " + hName(k, 2) + "  bias = " + num(w.b2[k])];
+      const prods = [];
+      const cells = [{ kind: "b2", i: k, j: 0 }];
+      for (let j = 0; j < w.h; j++) {
+        const prod = c.a1[j] * w.W2[j][k];
+        prods.push(prod);
+        cells.push({ kind: "W2", i: j, j: k });
+        lines.push("multiply  " + num(c.a1[j], 4) + " × " + num(w.W2[j][k], 4) + " = " + num(prod, 4));
+      }
+      lines.push("add  " + prods.map(v => num(v, 4)).join(" + ") + " + " + num(w.b2[k], 4) + " = " + num(c.z2[k], 4) + "    ← z");
+      lines.push("sigmoid  σ(" + num(c.z2[k], 4) + ") = " + num(c.a2[k], 4));
+      steps.push({
+        hot: ["h2-" + k].concat(c.a1.map((_, j) => "h1-" + j)),
+        edges: c.a1.map((_, j) => "h1-" + j + "-h2-" + k),
+        cells, focusId: "h2-" + k,
+        values: { ["h2-" + k]: num(c.a2[k]) },
+        title: "hidden 2 neuron " + hName(k, 2),
+        matrixLine: "z = a1 · W2[:," + hName(k, 2) + "] + b2[" + hName(k, 2) + "] = " + num(c.z2[k], 4),
+        lines,
+      });
+    }
+  }
+  const hid = c.hid;
+  const fromPrefix = w.two ? "h2-" : "h1-";
+  const prods = hid.map((a, j) => a * w.Wo[j]);
+  const outLines = hid.map((a, j) => "multiply  " + num(a, 4) + " × " + num(w.Wo[j], 4) + " = " + num(prods[j], 4));
+  outLines.push("add  " + prods.map(v => num(v, 4)).join(" + ") + " + " + num(w.bo, 4) + " = " + num(c.zo, 4) + "    ← z");
+  outLines.push("sigmoid  σ(" + num(c.zo, 4) + ") = " + num(c.yhat, 4) + "    ← prediction ŷ");
+  steps.push({
+    hot: ["out"].concat(hid.map((_, j) => fromPrefix + j)),
+    edges: hid.map((_, j) => fromPrefix + j + "-out"),
+    cells: hid.map((_, j) => ({ kind: "Wo", i: j, j: 0 })).concat([{ kind: "bo", i: 0, j: 0 }]),
+    focusId: "out",
+    values: { out: num(c.yhat) },
+    title: "output neuron",
+    change: { before: "z " + num(c.zo, 4), after: num(c.yhat, 4), note: "sigmoid → ŷ", dir: "" },
+    matrixLine: "z = a · Wo + bias = " + num(c.zo, 4) + "    ŷ = sigmoid(z) = " + num(c.yhat, 4),
+    lines: outLines,
+  });
+  const diff = c.yhat - p.label;
+  steps.push({
+    hot: ["out"], edges: [], cells: [], focusId: "out",
+    values: { out: num(c.yhat) },
+    title: "prediction 和 Ground Truth",
+    matrixLine: "loss = (ŷ − y)² = " + num(diff * diff),
+    lines: [
+      "prediction ŷ = " + num(c.yhat),
+      "Ground Truth y = " + p.label,
+      "ŷ − y = " + signed(diff),
+      "loss L = (ŷ − y)² = " + num(diff * diff),
+      errMeaning(c.yhat, p.label),
+    ],
+  });
+  return steps;
+}
+function backSteps(p, w, c) {
+  const steps = [];
+  const diff = c.yhat - p.label;
+  const hid = c.hid;
+  const fromPrefix = w.two ? "h2-" : "h1-";
+  const outEdges = hid.map((_, j) => fromPrefix + j + "-out");
+  const outCells = hid.map((_, j) => ({ kind: "Wo", i: j, j: 0 })).concat([{ kind: "bo", i: 0, j: 0 }]);
+  steps.push({
+    hot: ["out"].concat(hid.map((_, j) => fromPrefix + j)),
+    edges: outEdges, cells: outCells, focusId: "out",
+    title: "∂L/∂ŷ = 2(ŷ − y)",
+    matrixLine: "chain rule：loss → ŷ → z → weight。藍線是 error 要走回去的路。",
+    change: { before: "ŷ − y = " + signed(diff), after: signed(c.dLdy), note: "× 2 = ∂L/∂ŷ", dir: "" },
+    lines: [
+      "loss 量的是預測離 Ground Truth 多遠。用平方：正的差和負的差都算錯，差越大罰得越重。",
+      "L = (ŷ − y)² = (" + num(c.yhat) + " − " + p.label + ")² = " + num(diff * diff) + "。",
+      "對 ŷ 微分：把 (ŷ − y) 看成一個數。x² 的微分是 2x，所以 ∂L/∂ŷ = 2(ŷ − y) = 2 × " + paren(diff) + " = " + signed(c.dLdy) + "。",
+      errMeaning(c.yhat, p.label) + "。∂L/∂ŷ 是正的，代表把 ŷ 再加大會讓 loss 變大，所以要 decrease ŷ。是負的，就要 increase ŷ。",
+    ],
+  });
+  steps.push({
+    hot: ["out"].concat(hid.map((_, j) => fromPrefix + j)),
+    edges: outEdges, cells: outCells, focusId: "out",
+    title: "∂L/∂z = ∂L/∂ŷ × σ'(z)",
+    matrixLine: "weight 改的是 z。ŷ = sigmoid(z)，所以還要乘 sigmoid 的 derivative。",
+    change: { before: "∂L/∂ŷ = " + signed(c.dLdy), after: signed(c.dZo), note: "× σ' " + num(c.dSigO) + " = ∂L/∂z", dir: "" },
+    lines: [
+      "前面的力是對 ŷ 的。weight 加進的是 z，ŷ = sigmoid(z)，中間隔了一層。",
+      "chain rule：∂L/∂z = ∂L/∂ŷ × dŷ/dz。",
+      "sigmoid 的微分 σ'(z) = ŷ(1 − ŷ) = " + num(c.yhat) + " × " + num(1 - c.yhat) + " = " + num(c.dSigO) + "。",
+      "這個數永遠在 0 和 0.25 之間。它不會把正負反過來，只把力道縮小。ŷ 越靠近 0 或 1，它越接近 0，neuron 幾乎不動。",
+      "∂L/∂z = " + signed(c.dLdy) + " × " + num(c.dSigO) + " = " + signed(c.dZo) + "。符號跟 ∂L/∂ŷ 相同，所以方向不變，只是變小。",
+    ],
+  });
+  hid.forEach((a, j) => {
+    const g = c.dWo[j];
+    const delta = -S.lr * g;
+    const woNext = w.Wo[j] + delta;
+    steps.push({
+      hot: ["out", fromPrefix + j],
+      edges: [fromPrefix + j + "-out"],
+      cells: [{ kind: "Wo", i: j, j: 0 }],
+      focusId: "out",
+      edgeNext: { [fromPrefix + j + "-out"]: woNext },
+      nextCell: { ["Wo:" + j + ":0"]: woNext },
+      change: { before: num(w.Wo[j]), after: num(woNext), note: "Δ " + signed(delta) + "  " + dirWord(g), dir: dirWord(g) },
+      title: "weight Wo[" + hName(j, w.two ? 2 : 1) + "] × learning rate",
+      matrixLine: "新 weight = 舊 weight − learning rate × gradient",
+      lines: [
+        "gradient ∂L/∂W = ∂L/∂z × activation = " + signed(c.dZo) + " × " + num(a) + " = " + signed(g),
+        "learning rate η = " + S.lr,
+        "Δ = −η × gradient = −" + S.lr + " × " + signed(g) + " = " + signed(delta),
+        "weight " + num(w.Wo[j]) + " → " + num(w.Wo[j] + delta) + "（" + dirWord(g) + "）",
+      ],
+    });
+  });
+  {
+    const g = c.dbo;
+    const delta = -S.lr * g;
+    const boNext = w.bo + delta;
+    steps.push({
+      hot: ["out"], edges: [],
+      cells: [{ kind: "bo", i: 0, j: 0 }],
+      focusId: "out",
+      biasNext: { out: boNext },
+      nextCell: { "bo:0:0": boNext },
+      change: { before: num(w.bo), after: num(boNext), note: "Δ " + signed(delta) + "  " + dirWord(g), dir: dirWord(g) },
+      title: "output bias × learning rate",
+      matrixLine: "新 bias = 舊 bias − learning rate × gradient",
+      lines: [
+        "gradient = ∂L/∂z = " + signed(g) + "（bias 的係數是 1）",
+        "learning rate η = " + S.lr,
+        "Δ = −η × gradient = " + signed(delta),
+        "bias " + num(w.bo) + " → " + num(w.bo + delta) + "（" + dirWord(g) + "）",
+      ],
+    });
+  }
+  if (w.two && c.dZ2 && c.dW2 && c.dSig2) {
+    for (let k = 0; k < w.h; k++) {
+      steps.push({
+        hot: ["h2-" + k, "out"],
+        edges: ["h2-" + k + "-out"],
+        cells: [{ kind: "Wo", i: k, j: 0 }],
+        focusId: "h2-" + k,
+        title: "error 傳回 hidden 2 " + hName(k, 2),
+        matrixLine: "∂L/∂z = ∂L/∂z_out × Wo[" + hName(k, 2) + "] × σ' = " + signed(c.dZ2[k]),
+        lines: [
+          "乘上接到 output 的 weight Wo = " + num(w.Wo[k]) + "。" + wSign(w.Wo[k]),
+          "再乘這層 sigmoid derivative " + num(c.dSig2[k]),
+          "∂L/∂z = " + signed(c.dZ2[k]),
+        ],
+      });
+      for (let j = 0; j < w.h; j++) {
+        const gw = c.dW2[j][k];
+        const delta = -S.lr * gw;
+        const w2Next = w.W2[j][k] + delta;
+        steps.push({
+          hot: ["h1-" + j, "h2-" + k],
+          edges: ["h1-" + j + "-h2-" + k],
+          cells: [{ kind: "W2", i: j, j: k }],
+          focusId: "h2-" + k,
+          edgeNext: { ["h1-" + j + "-h2-" + k]: w2Next },
+          nextCell: { ["W2:" + j + ":" + k]: w2Next },
+          change: { before: num(w.W2[j][k]), after: num(w2Next), note: "Δ " + signed(delta) + "  " + dirWord(gw), dir: dirWord(gw) },
+          title: "W2[" + hName(j, 1) + "→" + hName(k, 2) + "] × learning rate",
+          matrixLine: "新 weight = 舊 weight − learning rate × gradient",
+          lines: [
+            "gradient = ∂L/∂z × activation = " + signed(c.dZ2[k]) + " × " + num(c.a1[j]) + " = " + signed(gw),
+            "learning rate η = " + S.lr,
+            "Δ = −η × gradient = " + signed(delta),
+            "weight " + num(w.W2[j][k]) + " → " + num(w.W2[j][k] + delta) + "（" + dirWord(gw) + "）",
+          ],
+        });
+      }
+    }
+  }
+  for (let j = 0; j < w.h; j++) {
+    const lines = w.two
+      ? [
+          "從後面傳回來 ∂L/∂a = " + signed(c.dA1[j]),
+          "乘這層 sigmoid 微分 " + num(c.dSig1[j]) + "，∂L/∂z = " + signed(c.dZ1[j]),
+        ]
+      : [
+          "∂L/∂z = 輸出的 ∂L/∂z × Wo × σ'",
+          "= " + signed(c.dZo) + " × " + paren(w.Wo[j]) + " × " + num(c.dSig1[j]) + " = " + signed(c.dZ1[j]),
+          wSign(w.Wo[j]) + "。σ' 只縮小力道。",
+        ];
+    steps.push({
+      hot: ["h1-" + j, "x", "y"],
+      edges: ["x-h1-" + j, "y-h1-" + j],
+      cells: [{ kind: "W1", i: 0, j }, { kind: "W1", i: 1, j }, { kind: "b1", i: j, j: 0 }],
+      focusId: "h1-" + j,
+      title: "error 傳到 hidden " + hName(j),
+      matrixLine: "∂L/∂z[" + hName(j) + "] = " + signed(c.dZ1[j]),
+      lines,
+    });
+    [0, 1].forEach((i) => {
+      const gw = c.dW1[i][j];
+      const delta = -S.lr * gw;
+      const src = i === 0 ? "x" : "y";
+      const w1Next = w.W1[i][j] + delta;
+      steps.push({
+        hot: [src, "h1-" + j],
+        edges: [src + "-h1-" + j],
+        cells: [{ kind: "W1", i, j }],
+        focusId: "h1-" + j,
+        edgeNext: { [src + "-h1-" + j]: w1Next },
+        nextCell: { ["W1:" + i + ":" + j]: w1Next },
+        change: { before: num(w.W1[i][j]), after: num(w1Next), note: "Δ " + signed(delta) + "  " + dirWord(gw), dir: dirWord(gw) },
+        title: "W1[" + src + ", " + hName(j) + "] × learning rate",
+        matrixLine: "新 weight = 舊 weight − learning rate × gradient",
+        lines: [
+          "gradient = ∂L/∂z × input = " + signed(c.dZ1[j]) + " × " + num(c.x[i]) + " = " + signed(gw),
+          "learning rate η = " + S.lr,
+          "Δ = −η × gradient = " + signed(delta),
+          "weight " + num(w.W1[i][j]) + " → " + num(w.W1[i][j] + delta) + "（" + dirWord(gw) + "）",
+        ],
+      });
+    });
+  }
+  return steps;
+}
+function netSvg(w, step, values, paint) {
+  const layers = [[
+    { id: "x", name: "x/10", bias: null },
+    { id: "y", name: "y/10", bias: null },
+  ]];
+  layers.push(Array.from({ length: w.h }, (_, j) => ({ id: "h1-" + j, name: hName(j, 1), bias: w.b1[j] })));
+  if (w.two) layers.push(Array.from({ length: w.h }, (_, k) => ({ id: "h2-" + k, name: hName(k, 2), bias: w.b2[k] })));
+  layers.push([{ id: "out", name: "ŷ", bias: w.bo }]);
+  const titles = w.two ? ["input", "hidden 1", "hidden 2", "output"] : ["input", "hidden", "output"];
+  const edges = [];
+  for (let col = 0; col < layers.length - 1; col++) {
+    layers[col].forEach((a) => {
+      layers[col + 1].forEach((b) => {
+        edges.push({ id: a.id + "-" + b.id, from: a.id, to: b.id, weight: edgeWeight(w, a.id, b.id) });
+      });
+    });
+  }
+  const nMax = Math.max(...layers.map((col) => col.length));
+  const colW = 250, rowH = 112, padX = 86, padY = 64, r = 30;
+  const width = padX * 2 + (layers.length - 1) * colW;
+  const height = padY + nMax * rowH;
+  const pos = {};
+  layers.forEach((col, ci) => {
+    const top = padY + (nMax - col.length) * rowH / 2;
+    col.forEach((node, ni) => { pos[node.id] = { x: padX + ci * colW, y: top + ni * rowH, node }; });
+  });
+  const hot = new Set(step ? step.hot : []);
+  const hotE = new Set(step ? step.edges : []);
+  const edgeSvg = edges.map((e) => {
+    const a = pos[e.from], b = pos[e.to];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const x1 = a.x + dx / len * r, y1 = a.y + dy / len * r;
+    const x2 = b.x - dx / len * (r + 2), y2 = b.y - dy / len * (r + 2);
+    const along = e.from === "x" ? 0.2 : e.from === "y" ? 0.5 : 0.62;
+    const mx = x1 + (x2 - x1) * along, my = y1 + (y2 - y1) * along;
+    const on = hotE.has(e.id);
+    const show = paint && on;
+    const nxt = step && step.edgeNext ? step.edgeNext[e.id] : undefined;
+    const label = nxt == null ? num(e.weight) : num(e.weight) + "→" + num(nxt);
+    const boxW = nxt == null ? 44 : 92;
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${show ? "#1f4e79" : "#cfc8bc"}" stroke-width="${show ? 3.2 : 1}" />
+      <rect x="${mx - boxW / 2}" y="${my - 9}" width="${boxW}" height="16" fill="${show ? "#d6e6f5" : "#fffdf8"}" stroke="${show ? "#1f4e79" : "none"}" />
+      <text x="${mx}" y="${my + 3}" text-anchor="middle" font-size="11" fill="${show ? "#10283f" : "#5e5a54"}" font-family="ui-monospace, Consolas, monospace">${label}</text>`;
+  }).join("");
+  const nodeSvg = Object.values(pos).map(({ x, y, node }) => {
+    const on = hot.has(node.id);
+    const show = paint && on;
+    const watched = S.watch === node.id;
+    const val = values[node.id] || "";
+    const biasNext = step && step.biasNext ? step.biasNext[node.id] : undefined;
+    const bias = node.bias === null ? "" : biasNext == null ? "bias " + num(node.bias) : "bias " + num(node.bias) + "→" + num(biasNext);
+    return `<g data-act="watch" data-id="${node.id}" style="cursor:pointer">
+      ${show ? `<circle cx="${x}" cy="${y}" r="${r + 8}" fill="none" stroke="#1f4e79" stroke-width="4" />` : ""}
+      ${watched ? `<circle cx="${x}" cy="${y}" r="${r + 7}" fill="none" stroke="#c47b12" stroke-width="3" />` : ""}
+      <circle cx="${x}" cy="${y}" r="${r}" fill="${show ? "#8eb8dd" : "#fffdf8"}" stroke="${show ? "#1f4e79" : "#cfc8bc"}" stroke-width="${show ? 3 : 1}" />
+      <text x="${x}" y="${y - 4}" text-anchor="middle" font-size="11" fill="#1c1b19" style="pointer-events:none">${node.name}</text>
+      <text x="${x}" y="${y + 12}" text-anchor="middle" font-size="12" fill="#1f4e79" font-family="ui-monospace, Consolas, monospace" style="pointer-events:none">${val}</text>
+      ${bias ? `<text x="${x}" y="${y + r + 16}" text-anchor="middle" font-size="10" fill="#5e5a54" style="pointer-events:none">${bias}</text>` : ""}
+    </g>`;
+  }).join("");
+  const titleSvg = titles.map((t, i) => `<text x="${padX + i * colW}" y="22" text-anchor="middle" font-size="12" fill="#5e5a54">${t}</text>`).join("");
+  return `<svg class="plot" viewBox="0 0 ${width} ${height}" role="img" aria-label="neurons and weights">${titleSvg}${edgeSvg}${nodeSvg}</svg>`;
+}
+function initialLines(w0) {
+  const lines = ["權重初始值（Xavier 隨機）。bias 初始全部是 0。"];
+  for (let j = 0; j < w0.h; j++) {
+    lines.push("W(x→" + hName(j) + ") = " + num(w0.W1[0][j]) + "    W(y→" + hName(j) + ") = " + num(w0.W1[1][j]) + "    b = " + num(w0.b1[j]));
+  }
+  if (w0.two) {
+    for (let j = 0; j < w0.h; j++) {
+      const row = [];
+      for (let k = 0; k < w0.h; k++) row.push("W(" + hName(j, 1) + "→" + hName(k, 2) + ") = " + num(w0.W2[j][k]));
+      lines.push(row.join("    ") + "    b = " + num(w0.b2[j]));
+    }
+  }
+  const outs = [];
+  for (let j = 0; j < w0.h; j++) outs.push("Wo[" + hName(j, w0.two ? 2 : 1) + "] = " + num(w0.Wo[j]));
+  lines.push(outs.join("    ") + "    output bias = " + num(w0.bo));
+  lines.push("按 Forward，看這個點怎麼沿這些 weight 做 multiply、add，變成 prediction。");
+  return lines;
+}
+function markSet(list) {
+  const s = new Set();
+  for (const cell of list || []) s.add(cell.kind + ":" + cell.i + ":" + cell.j);
+  return s;
+}
+function watchCells(w, id) {
+  if (!id) return [];
+  if (id === "x") return Array.from({ length: w.h }, (_, j) => ({ kind: "W1", i: 0, j }));
+  if (id === "y") return Array.from({ length: w.h }, (_, j) => ({ kind: "W1", i: 1, j }));
+  if (id.startsWith("h1-")) {
+    const j = Number(id.split("-")[1]);
+    const cells = [{ kind: "W1", i: 0, j }, { kind: "W1", i: 1, j }, { kind: "b1", i: j, j: 0 }];
+    if (w.two) for (let k = 0; k < w.h; k++) cells.push({ kind: "W2", i: j, j: k });
+    else cells.push({ kind: "Wo", i: j, j: 0 });
+    return cells;
+  }
+  if (id.startsWith("h2-")) {
+    const k = Number(id.split("-")[1]);
+    const cells = [{ kind: "b2", i: k, j: 0 }, { kind: "Wo", i: k, j: 0 }];
+    for (let j = 0; j < w.h; j++) cells.push({ kind: "W2", i: j, j: k });
+    return cells;
+  }
+  if (id === "out") {
+    return w.Wo.map((_, j) => ({ kind: "Wo", i: j, j: 0 })).concat([{ kind: "bo", i: 0, j: 0 }]);
+  }
+  return [];
+}
+function seekNeuron(id) {
+  stopPlay();
+  S.watch = id;
+  const phase = S.play.phase === "backward" ? "backward" : "forward";
+  const p = S.points[S.selected];
+  const c = backwardPoint(p, S.weights);
+  const steps = phase === "backward" ? backSteps(p, S.weights, c) : forwardSteps(p, S.weights, c);
+  const idx = steps.findIndex(s => s.focusId === id || (s.focusId === "in" && (id === "x" || id === "y")));
+  if (idx >= 0) {
+    S.play.phase = phase;
+    S.play.step = idx;
+    if (phase === "forward" && idx >= steps.length - 1) S.play.doneForward = true;
+  } else if (S.play.phase === "idle") {
+    S.play.phase = "forward";
+    S.play.step = 0;
+  }
+  render();
+}
+function changeHtml(step) {
+  if (!step || !step.change) return "";
+  const ch = step.change;
+  const noteCls = ch.dir === "increase" ? "up" : ch.dir === "decrease" ? "down" : "";
+  return `<div class="delta-card" id="delta-card"><span class="old">${esc(ch.before)}</span><span>→</span><span class="neu">${esc(ch.after)}</span><span class="note ${noteCls}">${esc(ch.note)}</span></div>`;
+}
+function stepHas(step, kind, i, j) {
+  return !!(step && step.cells && step.cells.some((cell) => cell.kind === kind && cell.i === i && cell.j === j));
+}
+function stepHot(step, id) {
+  return !!(step && step.hot && step.hot.indexOf(id) >= 0);
+}
+function stepComputesZ1(step, j) {
+  return stepHas(step, "W1", 0, j) || stepHas(step, "W1", 1, j) || stepHas(step, "b1", j, 0);
+}
+function stepComputesZ2(step, k) {
+  if (stepHas(step, "b2", k, 0)) return true;
+  return !!(step && step.cells && step.cells.some((cell) => cell.kind === "W2" && cell.j === k));
+}
+function stepComputesZo(step) {
+  if (stepHas(step, "bo", 0, 0)) return true;
+  return !!(step && step.cells && step.cells.some((cell) => cell.kind === "Wo"));
+}
+function mcell(text, on) {
+  return `<span class="mcell${on ? " on" : ""}">${esc(text)}</span>`;
+}
+function mxOp(symbol) {
+  return `<span class="mxop">${symbol}</span>`;
+}
+function mxVec(name, items, eqName) {
+  return `<div class="mxbox"><span class="mxname${eqName ? " eq" : ""}">${esc(name)}</span><div class="bracket"><div class="mxrow">${items.map((it) => mcell(it.text, it.on)).join("")}</div></div></div>`;
+}
+function mxLine(parts) {
+  return `<div class="mxline">${parts.join("")}</div>`;
+}
+function mxSigmaLine(outName, zName, rows) {
+  return mxLine([
+    mxVec(outName, rows.map((row) => ({ text: num(row.a), on: row.onA })), true),
+    mxOp("="),
+    mxVec("σ(" + zName + ")", rows.map((row) => ({ text: "σ(" + num(row.z) + ")", on: row.onZ })), true),
+  ]);
+}
+function mxMat(name, colHeads, rowLabels, rows) {
+  const head = `<div class="mxrow"><span class="mh side"></span>${colHeads.map((h) => `<span class="mh">${esc(h)}</span>`).join("")}</div>`;
+  const body = rows.map((row, r) => `<div class="mxrow"><span class="mh side">${esc(rowLabels[r])}</span>${row.map((it) => mcell(it.text, it.on)).join("")}</div>`).join("");
+  return `<div class="mxbox"><span class="mxname">${esc(name)}</span><div class="bracket">${head}${body}</div></div>`;
+}
+function mxCol(name, labels, items) {
+  const body = items.map((it, i) => `<div class="mxrow"><span class="mh side">${esc(labels[i])}</span>${mcell(it.text, it.on)}</div>`).join("");
+  return `<div class="mxbox"><span class="mxname">${esc(name)}</span><div class="bracket">${body}</div></div>`;
+}
+function matrixEq(w, c, step) {
+  const names = Array.from({ length: w.h }, (_, j) => hName(j, 1));
+  const names2 = Array.from({ length: w.h }, (_, j) => hName(j, 2));
+  const outNames = w.two ? names2 : names;
+  const z1On = names.map((_, j) => stepComputesZ1(step, j));
+  const a1Items = names.map((_, j) => ({
+    text: num(c.a1[j]),
+    on: w.two
+      ? !!(step && step.cells && step.cells.some((cell) => cell.kind === "W2" && cell.i === j))
+      : stepHas(step, "Wo", j, 0),
+  }));
+  const lines = [
+    mxLine([
+      mxVec("input", [
+        { text: num(c.x[0]), on: stepHot(step, "x") },
+        { text: num(c.x[1]), on: stepHot(step, "y") },
+      ]),
+      mxOp("×"),
+      mxMat("W1", names, ["x", "y"], [0, 1].map((i) => names.map((_, j) => ({ text: num(w.W1[i][j]), on: stepHas(step, "W1", i, j) })))),
+      mxOp("+"),
+      mxVec("b1", names.map((_, j) => ({ text: num(w.b1[j]), on: stepHas(step, "b1", j, 0) }))),
+      mxOp("="),
+      mxVec("z1", names.map((_, j) => ({ text: num(c.z1[j]), on: z1On[j] }))),
+    ]),
+    mxSigmaLine("a1", "z1", names.map((name, j) => ({ label: name, z: c.z1[j], a: c.a1[j], onA: false, onZ: z1On[j] }))),
+  ];
+  let hidName = "a1";
+  let hidItems = a1Items;
+  if (w.two && c.z2 && c.a2 && w.W2) {
+    lines.push(mxLine([
+      mxVec("a1", a1Items),
+      mxOp("×"),
+      mxMat("W2", names2, names, names.map((_, j) => names2.map((__, k) => ({ text: num(w.W2[j][k]), on: stepHas(step, "W2", j, k) })))),
+      mxOp("+"),
+      mxVec("b2", names2.map((_, k) => ({ text: num(w.b2[k]), on: stepHas(step, "b2", k, 0) }))),
+      mxOp("="),
+      mxVec("z2", names2.map((_, k) => ({ text: num(c.z2[k]), on: stepComputesZ2(step, k) }))),
+    ]));
+    const z2On = names2.map((_, k) => stepComputesZ2(step, k));
+    lines.push(mxSigmaLine("a2", "z2", names2.map((name, k) => ({ label: name, z: c.z2[k], a: c.a2[k], onA: stepHot(step, "h2-" + k), onZ: z2On[k] }))));
+    hidName = "a2";
+    hidItems = names2.map((_, k) => ({ text: num(c.a2[k]), on: stepHot(step, "h2-" + k) }));
+  }
+  lines.push(
+    mxLine([
+      mxVec(hidName, hidItems),
+      mxOp("×"),
+      mxCol("Wo", outNames, outNames.map((_, j) => ({ text: num(w.Wo[j]), on: stepHas(step, "Wo", j, 0) }))),
+      mxOp("+"),
+      mxVec("b", [{ text: num(w.bo), on: stepHas(step, "bo", 0, 0) }]),
+      mxOp("="),
+      mxVec("z", [{ text: num(c.zo), on: stepComputesZo(step) }]),
+    ]),
+    mxSigmaLine("ŷ", "z", [{ label: "output", z: c.zo, a: c.yhat, onA: stepHot(step, "out"), onZ: stepComputesZo(step) }]),
+  );
+  return `<div class="mxeq" id="matrix-eq">${lines.join("")}</div>`;
+}
+function syncMats(w, c, step, paint, showGrad) {
+  const marks = { step: paint ? markSet(step && step.cells) : new Set(), watch: markSet(watchCells(w, S.watch)), next: step && step.nextCell };
+  const cols1 = Array.from({ length: w.h }, (_, j) => hName(j, 1));
+  const cols2 = Array.from({ length: w.h }, (_, j) => hName(j, 2));
+  const outCols = w.two ? cols2 : cols1;
+  const mats = [
+    matHtml("W1  2 × hidden", "input", cols1, ["x/10", "y/10"], w.W1, showGrad ? c.dW1 : null, null, "W1", marks),
+    matHtml("b1", "", ["bias"], cols1, w.b1.map(v => [v]), showGrad ? c.db1.map(v => [v]) : null, null, "b1", marks),
+  ];
+  if (w.two) {
+    mats.push(matHtml("W2  hidden 1 → hidden 2", "from", cols2, cols1, w.W2, showGrad ? c.dW2 : null, null, "W2", marks));
+    mats.push(matHtml("b2", "", ["bias"], cols2, w.b2.map(v => [v]), showGrad && c.db2 ? c.db2.map(v => [v]) : null, null, "b2", marks));
+  }
+  mats.push(matHtml("Wo  hidden → output", "", ["output"], outCols, w.Wo.map(v => [v]), showGrad ? c.dWo.map(v => [v]) : null, null, "Wo", marks));
+  mats.push(matHtml("output bias", "", ["bias"], ["output"], [[w.bo]], showGrad ? [[c.dbo]] : null, null, "bo", marks));
+  return matrixEq(w, c, step) + `<div class="mats">${mats.join("")}</div>
+    <p class="small muted">上排是 weight。格子下方的正負號是這個點的 gradient，只在 Backward 出現。紅底是正的 gradient，更新時 decrease；綠底是負的 gradient，更新時 increase。藍底是這一 step 的格子，黃框是選定的 neuron。</p>`;
+}
+function playerHtml(p, w, c) {
+  const fwd = forwardSteps(p, w, c);
+  const back = backSteps(p, w, c);
+  const phase = S.play.phase;
+  const steps = phase === "backward" ? back : fwd;
+  const idx = phase === "idle" ? -1 : Math.max(0, Math.min(S.play.step, steps.length - 1));
+  const step = idx >= 0 ? steps[idx] : null;
+  const values = {};
+  if (phase === "forward") for (let i = 0; i <= idx; i++) Object.assign(values, fwd[i].values);
+  if (phase === "backward") fwd.forEach((s) => Object.assign(values, s.values));
+  const shown = step ? step.lines : initialLines(S.initial || w);
+  const title = step ? step.title : "initial weights";
+  const paint = phase === "forward" || phase === "backward";
+  const ep = viewEpoch();
+  const epLast = S.hist.length ? S.hist[S.hist.length - 1].step : 0;
+  const epNow = S.hist[ep] ? S.hist[ep].step : 0;
+  const progress = (step ? (phase === "backward" ? "Backward" : "Forward") + " " + (idx + 1) + " / " + steps.length : "尚未開始")
+    + (S.hist.length ? "　·　epoch " + epNow + " / " + epLast : "");
+  const changed = S.initial && JSON.stringify(S.initial) !== JSON.stringify(w);
+  const neurons = [{ id: "x", name: "x" }, { id: "y", name: "y" }]
+    .concat(Array.from({ length: w.h }, (_, j) => ({ id: "h1-" + j, name: hName(j, 1) })));
+  if (w.two) neurons.push(...Array.from({ length: w.h }, (_, k) => ({ id: "h2-" + k, name: hName(k, 2) })));
+  neurons.push({ id: "out", name: "ŷ" });
+  return `
+    <div class="hr"></div>
+    <h2>neuron：input 到 output，再 Backward</h2>
+    <div class="row">
+      <button class="btn ${phase === "backward" ? "" : "primary"}" data-act="play-forward">Forward</button>
+      <button class="btn ${phase === "backward" ? "primary" : ""}" data-act="play-back" ${S.play.doneForward ? "" : "disabled"} title="先看完 Forward，或在最後一步按 Next">Backward</button>
+      <button class="btn" data-act="play-prev">Previous</button>
+      <button class="btn ${S.nextFx ? "nexting" : ""}" data-act="play-step" id="play-next">Next</button>
+      <button class="btn ${S.play.timer ? "primary" : ""}" data-act="play-toggle" id="play-toggle">${S.play.timer ? "Pause" : "Play"}</button>
+      <button class="btn qbtn ${S.keysHelp ? "primary" : ""}" data-act="keys-help" id="keys-help-btn" aria-expanded="${S.keysHelp ? "true" : "false"}" aria-label="說明">?</button>
+      <span class="small muted" id="play-progress">${progress}</span>
+    </div>
+    ${S.keysHelp ? `<div class="callout" id="keys-help" style="margin-top:8px"><strong>說明</strong><p class="small" style="margin:6px 0 0"><kbd>→</kbd> <kbd>↓</kbd> Next　　<kbd>←</kbd> <kbd>↑</kbd> Previous</p><p class="small muted" style="margin:4px 0 0">游標在 input 或 epoch 滑桿裡時，方向鍵改的是那個欄位。</p><p class="small" style="margin:8px 0 0"><span class="swatch" style="background:#f6d6d2;border:1px solid #e3ddd3"></span> 紅底：gradient 是正的。把這格加大會讓 loss 變大，更新時 decrease。</p><p class="small" style="margin:4px 0 0"><span class="swatch" style="background:#d4efe2;border:1px solid #e3ddd3"></span> 綠底：gradient 是負的，更新時 increase。</p><p class="small" style="margin:4px 0 0"><span class="swatch" style="background:#8eb8dd;border:1px solid #1f4e79"></span> 藍底：這一 step 正在用的格子。黃框是選定的 neuron。</p><p class="small muted" style="margin:4px 0 0">格子下方的正負號是這個點的 gradient，只在 Backward 出現。Forward 只顯示 weight。</p></div>` : ""}
+    <div class="row" style="margin-top:8px">
+      <span class="small muted">neuron</span>
+      ${neurons.map(n => `<button class="pill ${S.watch === n.id ? "on" : ""}" data-act="watch" data-id="${n.id}">${n.name}</button>`).join("")}
+    </div>
+    <p class="small muted">epoch 是全部點平均後，weight 更新一次。Next 走的是同一個 epoch 裡的一個畫面。Backward 走完再按 Next，才進入下一個 epoch 的 Forward。</p>
+    <h2>matrix</h2>
+    ${syncMats(w, c, step, paint, phase === "backward")}
+    <p class="small muted">${changed ? "線上是目前的 weight。Forward 用的就是這些值。" : "線上是這個 epoch 的 weight。Forward 和 Backward 都把這一 step 的 neuron、連線、matrix 維持藍底。點 neuron 會跳到它的運算。"}</p>
+    ${netSvg(w, step, values, paint)}
+    ${changeHtml(step)}
+    ${step && step.nextCell ? `<p class="small muted">劃掉的是現在的數值，大字是這個點的 gradient 會改成的值。再按 Next 走到這個 epoch 結束後，下一個 epoch 用的是全部點的平均 gradient。</p>` : ""}
+    <div class="card" style="margin-top:8px">
+      <header><span id="step-title">${esc(title)}</span><span>${esc(progress)}</span></header>
+      <div class="body" id="step-body">${shown.map((line) => `<p class="story">${esc(line)}</p>`).join("")}</div>
+    </div>
+  `;
+}
+
+function renderMlp() {
+  const w = S.weights, p = S.points[S.selected];
+  const c = backwardPoint(p, w);
+  const meanG = batchGrads(S.points, w);
+  const lossMean = meanLoss(S.points, w);
+  let correct = 0;
+  for (const pt of S.points) if ((backwardPoint(pt, w).yhat >= 0.5 ? 1 : 0) === pt.label) correct++;
+  const f = S.focus;
+  const grad = cellGrad(gradsOf(c), f);
+  const avg = cellGrad(meanG, f);
+  const current = cellValue(w, f);
+  const next = current - S.lr * grad;
+  const sig = f.kind === "Wo" || f.kind === "bo" ? c.dSigO : (f.kind === "W2" || f.kind === "b2" ? (c.dSig2 ? c.dSig2[f.k] : 1) : c.dSig1[f.j]);
+  const saturated = sig < 0.05 || c.dSigO < 0.02;
+  const factors = mlpFactors(c, w, f, p.label);
+  const wrong = (c.yhat >= 0.5 ? 1 : 0) !== p.label;
+  let upstream = "";
+  if ((f.kind === "W1" || f.kind === "b1") && w.two && c.dZ2) {
+    const text = c.dZ2.map((dz, k) => `${num(dz)}×${num(w.W2[f.j][k])}`).join(" + ");
+    upstream = `<p class="eq">∂L/∂a1[${hName(f.j)}] = ${text} = ${num(c.dA1[f.j])}</p>`;
+  }
+  const speed = (() => {
+    if (S.hist.length < 2) return "訓練之後，loss 曲線的斜率和下面這行會顯示 learning rate 帶來的速度。";
+    const a = S.hist[0], b = S.hist[S.hist.length - 1];
+    const ds = b.step - a.step;
+    if (!ds) return "";
+    const delta = (b.loss - a.loss) / ds;
+    return `最近 ${ds} epochs：loss ${num(a.loss)} → ${num(b.loss)}，平均每 epoch ${delta < 0 ? "下降" : "上升"} ${num(Math.abs(delta))}。`;
+  })();
+  return `
+    <p>點抽在 0 到 10。x 大於 y 是 class 1（紅），否則 class 0（藍），分界是 y = x。送進 network 前先除以 10，否則 sigmoid 會飽和，derivative 接近 0。loss 和 LAB1 一樣是 (ŷ − y)²。</p>
+    <p class="muted">預設是 input、一層 hidden、一個 output。打開兩層 hidden 後，結構和 LAB1 一樣，負的 weight 會把 error 方向反轉。</p>
+    <div class="row" style="margin:12px 0">
+      <button class="pill ${S.two ? "" : "on"}" data-act="two" data-v="0">1 hidden</button>
+      <button class="pill ${S.two ? "on" : ""}" data-act="two" data-v="1">2 hidden（LAB1）</button>
+      <span class="small muted">neurons</span>
+      <select data-act="h">${options([2, 3, 4], S.h)}</select>
+      <span class="small muted">learning rate</span>
+      <input type="number" data-act="lr" min="0.05" max="20" step="0.05" value="${S.lr}" />
+      <span class="small muted">points</span>
+      <select data-act="n">${options([12, 20, 36], S.n)}</select>
+      <button class="btn" data-act="suggest">建議參數</button>
+    </div>
+    ${S.advice ? `<div class="callout" id="advice"><strong>建議參數</strong>${esc(S.advice)}</div>` : ""}
+    <div class="busy-track" id="busy-track" style="${S.busyPct > 0 && S.busyPct < 100 ? "" : "display:none"}"><div id="busy-bar" style="width:${Math.round(S.busyPct || 0)}%"></div></div>
+    <p class="small" id="busy">${esc(S.busy || "")}</p>
+    <div class="grid2">
+      <div>
+        <div class="plots">
+          <div>
+            <p class="plotcap">Ground Truth</p>
+            ${scatterSvg(S.points, S.selected, w, "gt")}
+          </div>
+          <div>
+            <p class="plotcap">Output</p>
+            ${scatterSvg(S.points, S.selected, w, "out")}
+          </div>
+        </div>
+        <p class="small"><span class="swatch" style="background:#c04545"></span> class 1　<span class="swatch" style="background:#2a6cb0"></span> class 0　<span class="swatch" style="background:#fffdf8;border:1px solid #1c1b19"></span> 白底黑叉 = Output 和 Ground Truth 不同</p>
+        <p class="small muted">左圖是標籤。右圖底色是目前的 ŷ，點的顏色是預測的 class。${S.points.length} 個點裡 ${correct} 個和 Ground Truth 一致。</p>
+      </div>
+      <div>
+        <p id="point-line">這個點是 (${p.x.toFixed(2)}, ${p.y.toFixed(2)})。${p.x > p.y ? "x 大於 y" : "x 沒有大於 y"}，標籤 ${p.label}。網路吃的是 (${num(c.x[0])}, ${num(c.x[1])})。</p>
+        <div class="stats">
+          <div class="stat"><b class="${wrong ? "bad" : "good"}" id="yhat">${num(c.yhat)}</b><span>prediction ŷ</span></div>
+          <div class="stat"><b>${p.label}</b><span>Ground Truth</span></div>
+          <div class="stat"><b>${num((c.yhat - p.label) ** 2)}</b><span>這個點的 loss</span></div>
+          <div class="stat"><b id="mean-loss">${num(lossMean)}</b><span>平均 loss</span></div>
+        </div>
+        <div class="card">
+          <header><span id="focus-name">${esc(focusLabel(f))}</span><span id="dir">${dirWord(grad)}</span></header>
+          <div class="body">
+            ${(f.kind === "W1" || f.kind === "b1") && S.two ? `<p class="small">輸出誤差 2(ŷ − y) = ${signed(c.dLdy)}。${errMeaning(c.yhat, p.label)}。下面第一列已經乘過第二層，不要再乘一次。</p>` : ""}
+            <table>
+              <thead><tr><th>factor</th><th class="num">數值</th><th>它在做什麼</th></tr></thead>
+              <tbody>${factors.map(r => `<tr><td>${esc(r.factor)}</td><td class="num">${esc(r.value)}</td><td>${esc(r.meaning)}</td></tr>`).join("")}</tbody>
+            </table>
+            ${upstream}
+            <p class="small muted">正的 gradient 代表把這格加大會讓 loss 變大，所以更新時要 decrease。表上四捨五入到小數第 3 位。</p>
+            <div class="callout ${saturated ? "warn" : ""}" id="update">
+              <strong>${esc(focusLabel(f))} this step: ${dirWord(grad)}</strong>
+              現在 ${num(current)}，新值 = ${num(current)} − ${S.lr} × ${signed(grad)} = ${num(next)}。這是這個點的 gradient。下一個 epoch 用的是全部點的平均 gradient ${signed(avg)}，這一格會 ${dirWord(avg)}。
+              ${saturated ? " 這條路徑上的 sigmoid derivative 很小，力道被壓得很小。" : ""}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="small muted" id="speed">${speed}</p>
+    ${playerHtml(p, w, c)}
+    ${epochBar()}
+    ${chartSvg(S.hist, true)}
+  `;
+}
+
+function renderCnn() {
+  const img = S.grid, w = S.cnnW, y = S.label, f = S.cnnFocus;
+  const c = cnnPass(img, y, w);
+  const batch = cnnBatch(w);
+  const wi = S.win.i, wj = S.win.j;
+  let g, cur, name;
+  if (f.kind === "K") { g = c.dK[f.u][f.v]; cur = w.K[f.u][f.v]; name = "核 " + POS2[f.u][f.v]; }
+  else if (f.kind === "bK") { g = c.dbK; cur = w.bK; name = "卷積 bias"; }
+  else if (f.kind === "V") { g = c.dV[f.i][f.j]; cur = w.V[f.i][f.j]; name = "讀出 " + POS3[f.i][f.j]; }
+  else { g = c.dbV; cur = w.bV; name = "輸出 bias"; }
+  const nxt = cur - S.cnnLr * g;
+  const zWin = c.z[wi][wj];
+  const terms = [[img[wi][wj], w.K[0][0]], [img[wi][wj + 1], w.K[0][1]], [img[wi + 1][wj], w.K[1][0]], [img[wi + 1][wj + 1], w.K[1][1]]];
+  const pixels = img.map((row, i) => row.map((v, j) => {
+    const hot = i >= wi && i <= wi + 1 && j >= wj && j <= wj + 1;
+    return `<button class="pix ${v ? "on" : "off"} ${hot ? "hot" : ""}" data-act="pixel" data-i="${i}" data-j="${j}">${v ? "1" : "0"}</button>`;
+  }).join("")).join("");
+  const acts = c.a.map((row, i) => row.map((v, j) => {
+    const closed = c.z[i][j] <= 0;
+    return `<button class="act ${closed ? "closed" : ""} ${i === wi && j === wj ? "hot" : ""}" data-act="win" data-i="${i}" data-j="${j}">${closed ? "關" : num(v)}<small>∂z ${signed(c.dZ[i][j])}</small></button>`;
+  }).join("")).join("");
+  let detail = "";
+  if (f.kind === "K" || f.kind === "bK") {
+    const rows = [];
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+      const pixel = f.kind === "K" ? img[i + f.u][j + f.v] : 1;
+      const dz = c.dZ[i][j];
+      const closed = c.z[i][j] <= 0;
+      let note = "傳回核";
+      if (closed) note = "ReLU 關掉，貢獻 0";
+      else if (pixel === 0) note = "像素是 0，沒有訊號";
+      else if (f.kind === "bK") note = "bias 在這個位置加一次";
+      else note = "像素是 1，乘積等於 ∂L/∂z";
+      rows.push(`<tr class="${i === wi && j === wj ? "info" : ""}"><td>${POS3[i][j]}</td><td class="num">${pixel}</td><td class="num">${signed(dz)}</td><td class="num">${signed(dz * pixel)}</td><td>${note}</td></tr>`);
+    }
+    detail = `<p class="small">輸出誤差 2(ŷ − y) = ${signed(c.dLdy)}。${errMeaning(c.yhat, y)}。再乘 sigmoid 微分 ${num(c.dSig)}，得到 ∂L/∂logit = ${signed(c.dLogit)}。</p>
+      <table><thead><tr><th>位置</th><th class="num">蓋到的像素</th><th class="num">∂L/∂z</th><th class="num">乘積</th><th>說明</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+      <p class="small" style="font-weight:650">九格加總 = 梯度 ${signed(g)}。${g > 5e-4 ? "正的，所以這個值要減少。" : g < -5e-4 ? "負的，所以這個值要增加。" : "接近 0，這一步幾乎不動。"}</p>`;
+  } else {
+    const rows = [
+      ["2(ŷ − y)", signed(c.dLdy), errMeaning(c.yhat, y)],
+      ["ŷ(1 − ŷ)", signed(c.dSig), "輸出 sigmoid 的微分"],
+    ];
+    if (f.kind === "V") {
+      rows.push(["活化 " + POS3[f.i][f.j], signed(c.a[f.i][f.j]), c.a[f.i][f.j] === 0 ? "活化是 0，這格這一步沒梯度" : "ReLU 之後的值"]);
+      rows.push(["梯度", signed(g), "三項相乘，和全連接輸出層相同"]);
+    } else rows.push(["梯度", signed(g), "兩項相乘，bias 係數是 1"]);
+    detail = `<p class="small">讀出權重的微分和全連接的輸出層一樣，是一個乘積，不是九格加總。</p>
+      <table><thead><tr><th>相乘因子</th><th class="num">數值</th><th>它在做什麼</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r[0])}</td><td class="num">${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("")}</tbody></table>`;
+  }
+  const wrong = (c.yhat >= 0.5 ? 1 : 0) !== y;
+  return `
+    <p>4×4 的圖，一個 2×2 的卷積核，步長 1，沒有補邊，得到 3×3。卷積後用 ReLU，再乘一組讀出權重，最後 sigmoid 做二分類。橫向亮帶的答案是 1，直帶和對角線是 0。</p>
+    <p class="muted">核的梯度是九個位置的「誤差 × 當時蓋到的像素」加總。把答案從 1 改成 0，梯度會整組變號。</p>
+    <div class="row" style="margin:12px 0">
+      ${PRESETS.map(p => `<button class="pill ${S.presetName === p.name ? "on" : ""}" data-act="preset" data-name="${p.name}">${p.name}</button>`).join("")}
+      <button class="pill ${y === 1 ? "on" : ""}" data-act="ylabel" data-v="1">答案 1，是</button>
+      <button class="pill ${y === 0 ? "on" : ""}" data-act="ylabel" data-v="0">答案 0，不是</button>
+      <span class="small muted">learning rate</span>
+      <input type="number" data-act="cnn-lr" min="0.05" max="5" step="0.05" value="${S.cnnLr}" />
+    </div>
+    <div class="grid2">
+      <div>
+        <p class="small" style="font-weight:650">圖片（點像素翻轉）　目前：${esc(S.presetName)}</p>
+        <div class="pixgrid">${pixels}</div>
+        <p class="small muted">粗框是卷積核現在蓋住的 2×2，位置是${POS3[wi][wj]}。點右邊的活化圖可以換位置。</p>
+        <p class="eq">z = ${terms.map(([pix, k]) => num(pix, 0) + "×" + paren(k)).join(" + ")} + ${paren(w.bK)} = ${num(zWin)}</p>
+        <p class="small">${zWin > 0 ? "ReLU 開著，活化 = " + num(zWin) + "，微分 = 1，誤差傳得回去。" : "ReLU 關掉，活化 = 0，微分 = 0，這個位置不會把誤差傳回核。"}</p>
+        <div class="stats">
+          <div class="stat"><b class="${wrong ? "bad" : "good"}" id="cnn-yhat">${num(c.yhat)}</b><span>這張圖的 ŷ</span></div>
+          <div class="stat"><b>${y}</b><span>標準答案</span></div>
+          <div class="stat"><b id="cnn-acc">${batch.correct}/4</b><span>四張範例答對</span></div>
+        </div>
+      </div>
+      <div>
+        <p class="small" style="font-weight:650">3×3 活化（點一格，看那個窗口）</p>
+        <div class="actgrid">${acts}</div>
+        <div class="card" style="margin-top:12px">
+          <header><span>${esc(name)}</span><span id="cnn-dir">${dirWord(g)}</span></header>
+          <div class="body">
+            ${detail}
+            <div class="callout" id="cnn-update"><strong>${esc(name)} 這一步會${dirWord(g)}</strong>現在 ${num(cur)}，新值 = ${num(cur)} − ${S.cnnLr} × ${signed(g)} = ${num(nxt)}。這是這張圖的梯度。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" data-act="cnn-step">這張圖走一步</button>
+      <button class="btn" data-act="cnn-batch">四張範例平均走一步</button>
+      <button class="btn" data-act="cnn-20">四張範例連走 20 步</button>
+      <button class="btn" data-act="cnn-reset">重置權重</button>
+    </div>
+    <p class="small muted">手改的圖只影響「這張圖走一步」。四張範例用固定的圖和答案。</p>
+    <div class="hr"></div>
+    <h2>核與讀出權重</h2>
+    <p class="small muted">上面是權重，下面是這張圖的梯度。<span class="swatch" style="background:#f6d6d2"></span> 正梯度減少　<span class="swatch" style="background:#d4efe2"></span> 負梯度增加</p>
+    <div class="mats">
+      ${matHtml("卷積核 K", "", ["左", "右"], ["上", "下"], w.K, c.dK, f.kind === "K" ? { i: f.u, j: f.v } : null, "K")}
+      ${matHtml("卷積 bias", "", ["bias"], ["核"], [[w.bK]], [[c.dbK]], f.kind === "bK" ? { i: 0, j: 0 } : null, "bK")}
+      ${matHtml("讀出權重 V", "", ["左", "中", "右"], ["上", "中", "下"], w.V, c.dV, f.kind === "V" ? { i: f.i, j: f.j } : null, "V")}
+      ${matHtml("輸出 bias", "", ["bias"], ["輸出"], [[w.bV]], [[c.dbV]], f.kind === "bV" ? { i: 0, j: 0 } : null, "bV")}
+    </div>
+    ${chartSvg(S.cnnHist)}
+  `;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  const scrollY = window.scrollY;
+  app.innerHTML = `
+    <h1>反向傳播：這一格該加還是該減</h1>
+    <p>gradient 是正的，把 weight 加大會讓 loss 變大，所以更新時要 decrease。gradient 是負的，就把 weight increase。公式是 weight ← weight − learning rate × gradient。</p>
+    <div class="row" style="margin-bottom:14px">
+      <button class="pill ${S.mode === "mlp" ? "on" : ""}" data-act="mode" data-v="mlp">MLP</button>
+      <button class="pill ${S.mode === "cnn" ? "on" : ""}" data-act="mode" data-v="cnn">CNN</button>
+    </div>
+    ${S.mode === "mlp" ? renderMlp() : renderCnn()}
+  `;
+  window.scrollTo(0, scrollY);
+  S.nextFx = false;
+}
+
+function reinitMlp(h, two, seed) {
+  resetPlay();
+  S.h = h; S.two = two; S.wSeed = seed;
+  S.weights = initMlp(h, two, seed);
+  S.initial = cloneW(S.weights);
+  S.hist = [];
+  S.epochAt = null;
+  S.focus = { kind: "Wo", j: 0 };
+  S.watch = null;
+}
+function epochBar() {
+  const ready = S.hist.length > 1;
+  const i = ready ? (S.epochAt == null ? S.hist.length - 1 : S.epochAt) : 0;
+  const row = ready ? S.hist[i] : null;
+  const last = ready ? S.hist[S.hist.length - 1] : null;
+  const slider = ready
+    ? `<span class="small muted">epoch</span>
+      <input type="range" data-act="epoch" min="0" max="${S.hist.length - 1}" value="${i}" style="width:220px" />
+      <span class="small" id="epoch-label">epoch ${row.step} / ${last.step}，loss ${num(row.loss)}</span>`
+    : "";
+  return `<div class="row" style="margin-top:10px">
+      <span class="small muted">epochs</span>
+      <input type="number" data-act="steps" min="1" max="200" step="1" value="${S.epochs}" />
+      ${slider}
+    </div>
+    <p class="small muted">epochs 是這條 loss 曲線的長度，和上面的 neurons、learning rate、points 用同一組 weight。改上面的參數會用初始 weight 重算這 ${S.epochs} 個 epoch。放開滑桿，或點曲線，weight 會切到那一個 epoch。Next 從那裡繼續走。</p>`;
+}
+function trimHist(hist) {
+  if (hist.length <= 500) return hist;
+  return [hist[0]].concat(hist.slice(hist.length - 499));
+}
+function setBusy(text, pct) {
+  S.busy = text;
+  S.busyPct = pct;
+  const el = document.getElementById("busy");
+  const bar = document.getElementById("busy-bar");
+  const track = document.getElementById("busy-track");
+  if (!el || !bar || !track) {
+    if (S.mode === "mlp") render();
+    return;
+  }
+  el.textContent = text;
+  bar.style.width = Math.max(0, Math.min(100, pct)) + "%";
+  track.style.display = pct > 0 && pct < 100 ? "block" : "none";
+}
+function cancelJob() {
+  if (S.job) S.job.cancelled = true;
+  S.job = null;
+}
+function rebuildHistory(times) {
+  if (!S.initial) return;
+  cancelJob();
+  const job = { cancelled: false };
+  S.job = job;
+  S.working = true;
+  resetPlay();
+  let cur = cloneW(S.initial);
+  const hist = [{ step: 0, loss: meanLoss(S.points, cur), weights: cloneW(cur) }];
+  let n = 0;
+  setBusy("正在跑 epoch 0 / " + times, 1);
+  function chunk() {
+    if (job.cancelled) return;
+    const end = Math.min(times, n + 8);
+    for (; n < end; n++) {
+      cur = applyGrads(cur, batchGrads(S.points, cur), S.lr);
+      hist.push({ step: n + 1, loss: meanLoss(S.points, cur), weights: cloneW(cur) });
+    }
+    if (n < times) {
+      setBusy("正在跑 epoch " + n + " / " + times, n / times * 100);
+      setTimeout(chunk, 16);
+      return;
+    }
+    S.hist = trimHist(hist);
+    S.epochAt = 0;
+    S.weights = cloneW(S.hist[0].weights);
+    S.working = false;
+    S.job = null;
+    S.busyPct = 0;
+    S.busy = "已算好 " + (S.hist.length - 1) + " 個 epoch，現在停在 epoch 0。拖 epoch 滑桿或點 loss 曲線可以跳；Next 走完 Backward 會進入下一個 epoch。";
+    render();
+  }
+  setTimeout(chunk, 16);
+}
+function startSuggest() {
+  if (S.working) return;
+  cancelJob();
+  const job = { cancelled: false };
+  S.job = job;
+  S.working = true;
+  const lrs = [0.25, 0.5, 1, 2, 4, 8];
+  const hs = [2, 3, 4];
+  const trialEpochs = 30;
+  const jobs = [];
+  hs.forEach((h) => lrs.forEach((lr) => jobs.push({ h, lr })));
+  let i = 0;
+  let best = null;
+  function better(acc, loss, lr) {
+    if (!best) return true;
+    if (acc > best.acc + 1e-6) return true;
+    if (Math.abs(acc - best.acc) <= 1e-6 && loss < best.loss - 1e-6) return true;
+    if (Math.abs(acc - best.acc) <= 1e-6 && Math.abs(loss - best.loss) <= 1e-6 && lr < best.lr) return true;
+    return false;
+  }
+  function one() {
+    if (job.cancelled) return;
+    if (i >= jobs.length) { applyBest(); return; }
+    const trial = jobs[i];
+    setBusy("建議參數 " + (i + 1) + " / " + jobs.length + "：neurons " + trial.h + "，learning rate " + trial.lr, (i / jobs.length) * 100);
+    let w = initMlp(trial.h, S.two, S.wSeed);
+    for (let n = 0; n < trialEpochs; n++) w = applyGrads(w, batchGrads(S.points, w), trial.lr);
+    const loss = meanLoss(S.points, w);
+    if (Number.isFinite(loss)) {
+      let correct = 0;
+      for (const p of S.points) if ((backwardPoint(p, w).yhat >= 0.5 ? 1 : 0) === p.label) correct++;
+      const acc = correct / S.points.length;
+      if (better(acc, loss, trial.lr)) best = { h: trial.h, lr: trial.lr, steps: trialEpochs, loss, acc };
+    }
+    i += 1;
+    setTimeout(one, 30);
+  }
+  function applyBest() {
+    if (!best) {
+      S.working = false;
+      S.job = null;
+      S.busyPct = 0;
+      S.busy = "這批點沒有找到可用的參數。";
+      render();
+      return;
+    }
+    if (best.h !== S.h) reinitMlp(best.h, S.two, S.wSeed);
+    S.lr = best.lr;
+    S.advice = "建議 neurons " + best.h + "、learning rate " + best.lr
+      + "。用這個組合試跑 " + best.steps + " epochs，accuracy " + Math.round(best.acc * 100) + "%，loss " + num(best.loss)
+      + "。已填進上面的 neurons、learning rate，並用它們重算下面 " + S.epochs + " 個 epoch。";
+    rebuildHistory(S.epochs);
+  }
+  setBusy("開始找建議參數…", 1);
+  setTimeout(one, 30);
+}
+function moveEpochCursor(i) {
+  const svg = document.querySelector("svg[aria-label='loss']");
+  const line = document.getElementById("epoch-mark");
+  const dot = document.getElementById("epoch-dot");
+  const label = document.getElementById("epoch-label");
+  const row = S.hist[i];
+  if (!svg || !line || !dot || !row) return;
+  const W = Number(svg.dataset.w), H = Number(svg.dataset.h), L = Number(svg.dataset.l), R = Number(svg.dataset.r);
+  const T = Number(svg.dataset.t), B = Number(svg.dataset.b);
+  let max = 0.05;
+  for (const item of S.hist) if (item.loss > max) max = item.loss;
+  const x = L + (S.hist.length <= 1 ? 0 : i / (S.hist.length - 1)) * (W - L - R);
+  const y = T + (1 - row.loss / max) * (H - T - B);
+  line.setAttribute("x1", x);
+  line.setAttribute("x2", x);
+  dot.setAttribute("cx", x);
+  dot.setAttribute("cy", y);
+  const last = S.hist[S.hist.length - 1];
+  if (label) label.textContent = "epoch " + row.step + " / " + last.step + "，loss " + num(row.loss);
+}
+function gotoEpoch(i) {
+  if (!S.hist.length) return;
+  const idx = Math.max(0, Math.min(S.hist.length - 1, i));
+  const row = S.hist[idx];
+  if (!row || !row.weights) return;
+  resetPlay();
+  S.epochAt = idx;
+  S.weights = cloneW(row.weights);
+  render();
+}
+document.getElementById("app").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-act]");
+  if (!t) return;
+  const act = t.dataset.act;
+  if (act === "keys-help") { S.keysHelp = !S.keysHelp; render(); return; }
+  if (S.working && act !== "mode") return;
+  if (act === "mode") { resetPlay(); S.mode = t.dataset.v; render(); return; }
+  if (act === "two") { reinitMlp(S.h, t.dataset.v === "1", S.wSeed); render(); rebuildHistory(S.epochs); return; }
+  if (act === "point") { resetPlay(); S.selected = Number(t.dataset.i); render(); return; }
+  if (act === "play-forward") { startPhase("forward"); render(); return; }
+  if (act === "play-back") { if (S.play.doneForward) { startPhase("backward"); render(); } return; }
+  if (act === "watch") { seekNeuron(t.dataset.id); return; }
+  if (act === "suggest") { startSuggest(); return; }
+  if (act === "play-prev") { stepPrev(); render(); return; }
+  if (act === "play-step") { stepNext(); render(); return; }
+  if (act === "play-toggle") { togglePlay(); render(); return; }
+  if (act === "chart-jump" && S.mode === "mlp" && S.hist.length > 1) {
+    const svg = t.closest("svg");
+    const box = svg.getBoundingClientRect();
+    const W = Number(svg.dataset.w), L = Number(svg.dataset.l), R = Number(svg.dataset.r);
+    const vx = (e.clientX - box.left) / box.width * W;
+    const t01 = (vx - L) / (W - L - R);
+    gotoEpoch(Math.round(Math.max(0, Math.min(1, t01)) * (S.hist.length - 1)));
+    return;
+  }
+  if (act === "focus") {
+    const kind = t.dataset.kind;
+    const i = Number(t.dataset.i || 0);
+    const j = Number(t.dataset.j || 0);
+    const k = Number(t.dataset.k || 0);
+    if (kind === "W1") { S.focus = { kind, i, j }; seekNeuron("h1-" + j); return; }
+    else if (kind === "b1") { S.focus = { kind, j: i }; seekNeuron("h1-" + i); return; }
+    else if (kind === "W2") { S.focus = { kind, j, k }; seekNeuron("h2-" + k); return; }
+    else if (kind === "b2") { S.focus = { kind, k: i }; seekNeuron("h2-" + i); return; }
+    else if (kind === "Wo") { S.focus = { kind, j: i }; seekNeuron(S.two ? "h2-" + i : "h1-" + i); return; }
+    else if (kind === "bo") { S.focus = { kind: "bo" }; seekNeuron("out"); return; }
+    else if (kind === "K") S.cnnFocus = { kind: "K", u: i, v: j };
+    else if (kind === "V") S.cnnFocus = { kind: "V", i, j };
+    else if (kind === "bK" || kind === "bV") S.cnnFocus = { kind };
+    render();
+    return;
+  }
+  if (act === "preset") {
+    const p = PRESETS.find(x => x.name === t.dataset.name);
+    S.grid = p.image.map(r => r.slice()); S.label = p.label; S.presetName = p.name; render(); return;
+  }
+  if (act === "ylabel") { S.label = Number(t.dataset.v); S.presetName = "手改"; render(); return; }
+  if (act === "pixel") {
+    const i = Number(t.dataset.i), j = Number(t.dataset.j);
+    S.grid = S.grid.map((r, ri) => r.map((cell, cj) => ri === i && cj === j ? 1 - cell : cell));
+    S.presetName = "手改"; render(); return;
+  }
+  if (act === "win") { S.win = { i: Number(t.dataset.i), j: Number(t.dataset.j) }; render(); return; }
+  if (act === "cnn-step" || act === "cnn-batch" || act === "cnn-20") {
+    const times = act === "cnn-20" ? 20 : 1;
+    let cur = S.cnnW;
+    const added = [];
+    let step = S.cnnHist.length ? S.cnnHist[S.cnnHist.length - 1].step : 0;
+    if (!S.cnnHist.length) added.push({ step: 0, loss: cnnBatch(cur).loss });
+    for (let n = 0; n < times; n++) {
+      const g = act === "cnn-step" ? cnnPass(S.grid, S.label, cur) : cnnBatch(cur);
+      cur = applyCnn(cur, g, S.cnnLr);
+      step += 1;
+      added.push({ step, loss: cnnBatch(cur).loss });
+    }
+    S.cnnW = cur;
+    S.cnnHist = S.cnnHist.concat(added).slice(-60);
+    render();
+    return;
+  }
+  if (act === "cnn-reset") { S.cnnW = initCnn(); S.cnnHist = []; render(); }
+});
+
+document.getElementById("app").addEventListener("input", (e) => {
+  const t = e.target;
+  if (S.working || t.dataset.act !== "epoch") return;
+  const i = Math.max(0, Math.min(S.hist.length - 1, Number(t.value)));
+  S.epochAt = i;
+  moveEpochCursor(i);
+});
+
+document.getElementById("app").addEventListener("change", (e) => {
+  const t = e.target;
+  if (S.working) return;
+  if (t.dataset.act === "h") { reinitMlp(Number(t.value), S.two, S.wSeed); render(); rebuildHistory(S.epochs); }
+  if (t.dataset.act === "lr") {
+    const v = Number(t.value);
+    if (v >= 0.05 && v <= 20) { S.lr = v; render(); rebuildHistory(S.epochs); }
+  }
+  if (t.dataset.act === "steps") {
+    const v = Math.round(Number(t.value));
+    if (v >= 1 && v <= 200 && v !== S.epochs) { S.epochs = v; render(); rebuildHistory(S.epochs); }
+  }
+  if (t.dataset.act === "epoch") { gotoEpoch(Number(t.value)); }
+  if (t.dataset.act === "n") { S.n = Number(t.value); S.points = makePoints(S.dataSeed, S.n); S.selected = 0; S.weights = cloneW(S.initial); render(); rebuildHistory(S.epochs); }
+  if (t.dataset.act === "cnn-lr") {
+    const v = Number(t.value);
+    if (v >= 0.05 && v <= 5) S.cnnLr = v;
+    render();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (S.mode !== "mlp" || S.working) return;
+  const el = document.activeElement;
+  const tag = el && el.tagName;
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    e.preventDefault();
+    stepNext();
+    render();
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    e.preventDefault();
+    stepPrev();
+    render();
+  }
+});
+
+S.weights = initMlp(S.h, S.two, S.wSeed);
+S.initial = cloneW(S.weights);
+S.points = makePoints(S.dataSeed, S.n);
+S.cnnW = initCnn();
+render();
+rebuildHistory(S.epochs);
+</script>
+</body>
+</html>
